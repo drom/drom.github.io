@@ -12,7 +12,7 @@
     // ast = document.getElementById('ast');
     asm = document.getElementById('asm');
 
-    inp.value = localStorage.shiftAST || 'var a;';
+    inp.value = localStorage.shiftAST || 'function add (a, b) {\n  return a + b;\n}';
     asm.value = 'dup drop';
 
     function refresh () {
