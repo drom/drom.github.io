@@ -1,0 +1,64 @@
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Shift Forth Editor</title>
+
+    <!-- <link rel="stylesheet" href="http://yui.yahooapis.com/pure/0.5.0/pure-min.css"> -->
+    <!-- <link rel="import" href="../components/polymer/polymer.html"> -->
+    <!-- <link rel="import" href="../components/ui-treeview/ui-treeview.html"> -->
+    <!--script src="../bower_components/webcomponentsjs/webcomponents.min.js"></script-->
+
+    <!-- <link href="http://fonts.googleapis.com/css?family=Ubuntu+Mono" rel="stylesheet" type="text/css"> -->
+    <!-- <link href='http://fonts.googleapis.com/css?family=Inconsolata' rel='stylesheet' type='text/css'> -->
+    <link href='http://fonts.googleapis.com/css?family=Droid+Sans+Mono' rel='stylesheet' type='text/css'>
+    <link rel="stylesheet" href="codemirror.css">
+    <link rel="stylesheet" href="colorforth.css">
+    <link rel="stylesheet" href="dialog.css">
+    <!-- <link rel="stylesheet" href="redrom.css"> -->
+    <style type="text/css">
+    pre {
+        font-family: 'Droid Sans Mono', monospace;
+        font-size: 16px;
+        margin: 0px;
+    }
+    .CodeMirror {
+        font-family: 'Droid Sans Mono', monospace;
+        font-size: 16px;
+        border-top: 0px;
+        border-bottom: 0px;
+        background: #f7f7f7;
+        height: 100%;
+        border: 0px;
+    }
+    body {
+        margin: 0px;
+        border: 0px;
+    }
+    textarea {
+        margin: 0px;
+        border: 0px;
+        padding: 0px;
+    }
+    ui-treeview::shadow /deep/ * {
+        font-family: 'Droid Sans Mono', monospace;
+        font-size: 16px;
+    }
+    </style>
+    <script src="../node_modules/codemirror/lib/codemirror.js"></script>
+    <script src="../node_modules/codemirror/addon/search/search.js"></script>
+    <script src="../node_modules/codemirror/addon/search/searchcursor.js"></script>
+    <script src="../node_modules/codemirror/mode/javascript/javascript.js"></script>
+    <script src="forth.js"></script>
+</head>
+<body>
+    <div id="content">
+        <div style ="width: 50%; float:left; height: 100%"><textarea id="inp"></textarea></div>
+        <div style ="width: 50%; float:left; height: 100%; overflow: auto;"><textarea id="asm"></textarea></div>
+        <!-- <div style="width: 34%; float:left; height: 100%; overflow: auto;"> -->
+          <!-- <ui-treeview id="ast" expanded>{"a":{"b":"c"}}</ui-treeview> -->
+          <!-- <pre id="ast"></pre> -->
+        <!-- </div> -->
+    </div>
+    <script src="compiler.all.js"></script>
+</body>
+</html>
