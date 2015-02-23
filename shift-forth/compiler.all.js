@@ -6,14 +6,7 @@
         analyze = require('shift-scope').default,
         forth = require('shift-forth');
 
-    var inp, asm, cmJavaSCript, cmForth;
-
-    inp = document.getElementById('inp');
-    // ast = document.getElementById('ast');
-    asm = document.getElementById('asm');
-
-    inp.value = localStorage.shiftAST || 'function add (a, b) {\n  return a + b;\n}';
-    asm.value = 'dup drop';
+    var inp, asm, cmJavaSCript, cmForth, comments;
 
     function refresh () {
         var source, tree, scope; // , time; // astElement, time;
@@ -25,9 +18,22 @@
         scope = analyze(tree);
         localStorage.shiftAST = source;
         forth.dfg(scope);
-        forth.emit(scope, { comments: true });
+        forth.emit(scope, { comments: comments });
         cmForth.setValue(scope.forth);
     }
+
+    comments = true;
+    inp = document.getElementById('inp');
+    // ast = document.getElementById('ast');
+    asm = document.getElementById('asm');
+
+    inp.value = localStorage.shiftAST || 'function add (a, b) {\n  return a + b;\n}';
+    asm.value = 'dup drop';
+
+    document.getElementById('button').addEventListener('click', function () {
+        comments = !comments;
+        refresh();
+    });
 
     cmJavaSCript = CodeMirror.fromTextArea(
         inp,
@@ -66,11 +72,556 @@
 
 /* global console, CodeMirror */
 
-},{"shift-forth":5,"shift-parser":8,"shift-scope":14}],2:[function(require,module,exports){
+},{"shift-forth":4,"shift-parser":13,"shift-scope":19}],2:[function(require,module,exports){
+'use strict';
+
+// adds 'dfg' section to every scoped basic block
+
+// dfg: {
+//     init: ['a'], // initial parameter stack state
+//     edge: { // all data dependencies in this block
+//         b: ['a'],
+//         c: ['b', 'a']
+//     },
+//     done: ['c'] // final parameter stack state
+// }
+
+var // _ = require('lodash'),
+    trav = require('shift-traverse');
+
+function dfg (scope) {
+    if (scope.type && scope.type.name === 'function') {
+
+        scope.dfg = {init: [], from: {}, to: {}};
+
+        scope.astNode.parameters.some(function (e) {
+            scope.dfg.init.push(e.name);
+        });
+
+        trav.traverse(scope.astNode, {
+            leave: function (node) {
+                var depend,
+                    path,
+                    tail;
+
+                path = this.path() || [];
+                tail = path[path.length - 1];
+
+                switch(node.type) {
+
+                case trav.Syntax.LiteralNumericExpression:
+                    node.depend = [node.name];
+                    break;
+
+                case trav.Syntax.IfStatement:
+                    depend = node.test.depend;
+                    scope.dfg.from[node.name] = depend;
+                    scope.dfg.to[depend] = [node.name];
+                    break;
+
+                case trav.Syntax.Identifier:
+                    node.depend = [node.name];
+                    break;
+
+                case trav.Syntax.IdentifierExpression:
+                    if (tail !== 'binding') { // not assigned value
+                        node.depend = [node.name];
+                        depend = node.identifier.depend;
+                        scope.dfg.from[node.name] = depend;
+                        if (depend) {
+                            depend.forEach(function (e) {
+                                scope.dfg.to[e] = scope.dfg.to[e] || [];
+                                scope.dfg.to[e].push(node.name);
+                            });
+                        }
+                    }
+                    break;
+
+                case trav.Syntax.BinaryExpression:
+                    node.depend = [node.name];
+                    depend = node.left.depend.concat(node.right.depend);
+                    scope.dfg.from[node.name] = depend;
+                    if (depend) {
+                        depend.forEach(function (e) {
+                            scope.dfg.to[e] = scope.dfg.to[e] || [];
+                            scope.dfg.to[e].push(node.name);
+                        });
+                    }
+                    break;
+
+                case trav.Syntax.AssignmentExpression:
+                    depend = node.expression.depend;
+                    scope.dfg.from[node.binding.identifier.name] = depend;
+                    if (depend) {
+                        depend.forEach(function (e) {
+                            scope.dfg.to[e] = scope.dfg.to[e] || [];
+                            scope.dfg.to[e].push(node.binding.identifier.name);
+                        });
+                    }
+                    // scope.dfg.edge.a = [];
+                    break;
+
+                case trav.Syntax.ReturnStatement:
+                    depend = node.expression.depend;
+                    scope.dfg.from[node.name] = depend;
+                    scope.dfg.to[depend] = [node.name];
+                    break;
+                }
+            }
+        });
+
+        // console.log(scope.dfg);
+    }
+    scope.children.some(dfg);
+}
+
+module.exports = dfg;
+
+},{"shift-traverse":7}],3:[function(require,module,exports){
+'use strict';
+
+var _ = require('lodash'),
+    trav = require('shift-traverse');
+
+function forthOperators (operator) {
+    var table = {
+        '&&': 'and',
+        '||': 'or',
+        '<<': 'lshift',
+        '>>': 'rshift',
+        '~': 'invert',
+        // Forth
+        '<': '<',
+        '>': '>',
+        '<=': '> invert',
+        '>=': '< invert',
+        '==': '=',
+        '!==': '<>'
+    };
+    return table[operator] || operator;
+}
+
+// peephole optimizer running over the Forth string
+function peephole (newString) {
+
+    // single optimization pass
+    function step (str) {
+        var f, op2, op2c;
+
+        op2 = '(and|or|xor|lshift|rshift|\\+|\\-|\\*|/|=|<|>|<=|>=)';
+        op2c = '(and|or|xor|\\+|\\*|=)'; // commutative
+
+        f = str.match('(.*)0 pick nip(.*)');
+        if (f) { return f[1] + f[2]; }
+
+        f = str.match('(.*)1 pick ' + op2 + ' nip(.*)');
+        if (f) { return f[1] + 'swap ' + f[2] + f[3]; }
+
+        f = str.match('(.*)0 pick 1 pick(.*)');
+        if (f) { return f[1] + '0 pick 0 pick' + f[2]; }
+
+        f = str.match('(.*)1 pick swap ' + op2 + ' nip(.*)');
+        if (f) { return f[1] + f[2] + f[3]; }
+
+        f = str.match('(.*)0 pick 2 pick ' + op2 + '(.*)');
+        if (f) { return f[1] + '1 pick 1 pick swap ' + f[2] + f[3]; }
+
+        f = str.match('(.*)0 pick 2 pick swap (' + op2 + ')(.*)');
+        if (f) { return f[1] + '1 pick 1 pick ' + f[2] + f[3]; }
+
+        f = str.match('(.*)0 pick (\\d+) ' + op2 + ' nip(.*)');
+        if (f) { return f[1] + f[2] + ' ' + f[3] + f[4]; }
+
+        f = str.match('(.*)0 pick (\\w+) @ ' + op2 + ' nip(.*)');
+        if (f) { return f[1] + f[2] + ' @ ' + f[3] + f[4]; }
+
+        f = str.match('(.*)swap ' + op2c + '(.*)');
+        if (f) { return f[1] + f[2] + f[3]; }
+
+        return false; // string can't be optimized
+    }
+
+    var oldString;
+
+    do {
+        oldString = newString;
+        newString = step(oldString);
+    } while (newString)
+    return oldString;
+}
+
+function insertForth (scope, dfg, options) {
+    var astNode, stack, stream;
+
+    // stack is an array of elements: [e0, e1, ...]
+    // element is an array with name and array of dependents: [name, [d0, ...]]
+
+    function stackStatus (init) {
+        var arr, ret;
+
+        // console.log(JSON.stringify(stack));
+
+        arr = init.split('\n');
+        if (
+            options &&
+            options.comments &&
+            options.comments === true
+        ) {
+            ret = '';
+            stack.forEach(function (e) {
+                ret += ' ' + e[0] + ':' + e[1].join(',');
+            });
+
+            return _.repeat(' ', 22 - arr[arr.length - 1].length) + ' (' + ret + ' )\n';
+        } else {
+            return ' ';
+        }
+    }
+
+    function cleanStackElement () {
+        var res, e, tmp; //, i, j;
+        res = '';
+
+        if (stack.length === 0) {
+            // empty stack case
+            return res;
+        }
+
+        // all cleaning oprations on the top of stack
+        e = stack[stack.length - 1][1];
+        if (e.length === 0) {
+            // droping useless element
+            stack.pop();
+            res = 'drop';
+            res += stackStatus(res);
+            return res;
+        }
+
+        if (stack.length === 1) {
+            return res;
+        }
+
+        if (stack[stack.length - 2][1].length === 0) {
+            tmp = stack.pop();
+            stack.pop();
+            stack.push(tmp);
+            res = 'nip';
+            return res;
+        }
+        return res;
+    }
+
+    function cleanStack (init) {
+        var res, temp;
+        res = init || '';
+        do {
+            temp = cleanStackElement();
+            if (temp !== '') {
+                if (res === '') {
+                    res = temp;
+                } else {
+                    res += ' ' + temp;
+                }
+            }
+        } while (temp !== '')
+        return res;
+    }
+
+    function pick (target, self) {
+
+        // target is the node we need to pick from the stack
+        // self is the current node
+
+        // example:
+        // stack before: [[], ..., ["a",["b", "c", "d"]], ..., []]
+        // pick({name:"a"}, {name:"c"})
+        // stack after:  [[], ..., ["a",["b",      "d"]], ..., [], ["c", []]]
+
+
+        var depth; // pick depth
+
+        // remove one dependent from the stack element
+        // and returns true if it matches
+
+        // stack element before: ["a", ["b", "c", "d"]]
+        // cut("c", 1) -> true
+        // stack element before: ["a", ["b",      "d"]]
+        function cut (name, index, arr) {
+            if (name === self.name) {
+                arr.splice(index, 1);
+                return true;
+            }
+        }
+
+        stack.some(function (element, index) {
+            if (element[0] === target.name) { // name field
+                if (element[1].some(cut)) { // array of dependents
+                    depth = stack.length - index - 1;
+                    return true;
+                }
+            }
+        });
+
+        stack.push([self.name, dfg.to[self.name] || []]);
+        return depth + ' pick';
+    }
+
+    astNode = scope.astNode;
+    stack = [];
+    stream = '';
+
+    trav.traverse(astNode, {
+        enter: function (node) {
+            var forth;
+
+            switch(node.type) {
+
+            case trav.Syntax.FunctionDeclaration:
+                stack = [];
+
+                dfg.init.forEach(function (e) {
+                    stack.push([e, dfg.to[e] || []]);
+                });
+
+                forth = '\n: ' + node.name.name;
+                stream += forth + stackStatus(forth);
+                forth = cleanStack();
+                if (forth !== '') {
+                    stream += forth + stackStatus(forth);
+                }
+                break;
+
+            }
+        },
+        leave: function (node, parent) {
+            var path,
+                forth,
+                tail;
+
+            path = this.path() || [];
+            tail = path[path.length - 1];
+
+            switch (node.type) {
+
+            case trav.Syntax.LiteralNumericExpression:
+                stack.push([node.name, [parent.name]]);
+                forth = node.value + '';
+                // forth = cleanStack(forth);
+                stream += forth + stackStatus(forth);
+                break;
+            case trav.Syntax.IdentifierExpression:
+                if (tail !== 'binding') { // not assigned value
+                    if (
+                        scope.variableList.some(function (e) {
+                            return e.name === node.identifier.name;
+                        }) || node.identifier.name.match(/\$/)
+                    ) {
+                        // console.log([node.identifier.name, node.name]);
+                        forth = pick(node.identifier, node); // local
+                    } else {
+                        forth = node.identifier.name + ' @'; // global
+                        stack.push([node.name, [parent.name]]);
+                    }
+                    // forth = cleanStack(forth);
+                    stream += forth + stackStatus(forth);
+                }
+                break;
+            case trav.Syntax.BinaryExpression:
+                stack.pop();
+                stack.pop();
+                stack.push([node.name, dfg.to[node.name] || []]);
+
+                forth = forthOperators(node.operator);
+                forth = cleanStack(forth);
+                // forth = peephole(forth);
+                stream += forth + stackStatus(forth);
+                break;
+            case trav.Syntax.AssignmentExpression:
+                // node.forth
+                //     = node.expression.forth
+                //     + node.binding.forth;
+
+                if (scope.variableList.some(function (e) {
+                    return e.name === node.binding.identifier.name;
+                })) { // local
+                    forth = '';
+                    stack.pop();
+                    stack.push([node.binding.identifier.name, dfg.to[node.binding.identifier.name]]);
+                } else { // global
+                    forth = node.binding.name + ' !';
+                    stack.pop();
+                }
+                // forth = peephole(forth);
+                forth = cleanStack(forth);
+                stream += forth + stackStatus(forth);
+                break;
+            case trav.Syntax.IfStatement:
+        //         if (node.alternate && node.alternate.forth) {
+        //             node.forth
+        //                 = node.test.forth
+        //                 + 'if' + stackStatus(stack, 'if')
+        //                 + node.consequent.forth
+        //                 + 'else' + stackStatus(stack, 'else')
+        //                 + node.alternate.forth
+        //                 + 'then' + stackStatus(stack, 'then');
+        //         } else {
+        //             node.forth
+        //                 = node.test.forth
+        //                 + 'if' + stackStatus(stack, 'if')
+        //                 + node.consequent.forth
+        //                 + 'then' + stackStatus(stack, 'then');
+        //         }
+        //         break;
+        //
+        //     case trav.Syntax.ForStatement: // init test update body
+        //         node.forth
+        //             = node.init.forth
+        //             + 'begin\n'
+        //             + indent(node.test.forth)
+        //             + 'while\n'
+        //             + indent(node.body.forth + ' ' + node.update.forth)
+        //             + 'repeat\n';
+                break;
+            case trav.Syntax.FunctionDeclaration:
+                forth = ';';
+                stream += forth + stackStatus(forth);
+                break;
+            case trav.Syntax.ReturnStatement:
+                forth = cleanStack();
+                forth += (forth === '' ? '' : ' ');
+                forth += 'exit';
+                stream += forth + stackStatus(forth);
+                break;
+        //     case trav.Syntax.VariableDeclarator:
+        //         node.forth = '';
+        //         // if (node.init) {
+        //         //     node.forth
+        //         //         = '\ncreate ' + node.binding.forth + ' '
+        //         //         + node.init.forth + ' ,';
+        //         // } else {
+        //         //     node.forth
+        //         //         = '\nvariable ' + node.binding.forth;
+        //         // }
+        //         break;
+        //
+        //     case trav.Syntax.FunctionBody:
+        //     case trav.Syntax.Block:
+        //         node.forth = '';
+        //         node.statements.forEach(function (e) {
+        //             // if (node.forth !== '') {
+        //             //     node.forth += '';
+        //             // }
+        //             node.forth += e.forth;
+        //         });
+        //         break;
+        //
+        //     case trav.Syntax.VariableDeclaration:
+        //         node.forth = '';
+        //         node.declarators.forEach(function (e) {
+        //             if (node.forth !== '') {
+        //                 node.forth += '\n';
+        //             }
+        //             node.forth += e.forth;
+        //         });
+        //         break;
+        //
+            }
+
+            if (parent && (parent.type === trav.Syntax.IfStatement)) {
+                switch (tail) {
+                case 'test':
+                    stack.pop();
+                    forth = 'if';
+                    stream += forth + stackStatus(forth);
+                    break;
+                case 'consequent':
+                    forth = 'else';
+                    stream += forth + stackStatus(forth);
+                    break;
+                case 'alternate':
+                    forth = 'then';
+                    stream += forth + stackStatus(forth);
+                    break;
+                }
+            }
+
+        }
+    });
+
+    return peephole(stream);
+}
+
+module.exports = function (scope, options) {
+    // console.log(JSON.stringify(heu, null, 2));
+
+    var res;
+
+    res = '';
+
+    scope.variableList.forEach(function (e) {
+        if (e.declarations.length === 0) {
+            res += 'variable ' + e.name + '\n';
+        }
+    });
+
+    scope.children.forEach(function (e) {
+        // console.log(JSON.stringify(e.dfg, null, 4));
+        res += insertForth(e, e.dfg, options);
+    });
+
+    scope.forth = res;
+    return;
+
+};
+
+},{"lodash":6,"shift-traverse":7}],4:[function(require,module,exports){
+var emit = require('./emit'),
+    dfg = require('./dfg'),
+    naming = require('./naming');
+
+module.exports = {
+    emit: emit,
+    dfg: dfg,
+    naming: naming
+};
+
+},{"./dfg":2,"./emit":3,"./naming":5}],5:[function(require,module,exports){
+'use strict';
+
+var trav = require('shift-traverse');
+
+module.exports = function (tree) {
+    var counter;
+
+    counter = 0;
+    trav.traverse(tree, {
+        enter: function (node) {
+            if (node.type === trav.Syntax.FunctionBody) {
+                counter = 0;
+                return;
+            }
+
+            if (node.name === undefined) {
+                switch (node.type) {
+
+                case trav.Syntax.BinaryExpression:
+                case trav.Syntax.ReturnStatement:
+                // case trav.Syntax.AssignmentExpression:
+                case trav.Syntax.IdentifierExpression:
+                case trav.Syntax.LiteralNumericExpression:
+                    node.name = '$' + counter++;
+                    break;
+                }
+            }
+        }
+    });
+};
+
+},{"shift-traverse":7}],6:[function(require,module,exports){
 (function (global){
 /**
  * @license
- * lodash 3.2.0 (Custom Build) <https://lodash.com/>
+ * lodash 3.3.0 (Custom Build) <https://lodash.com/>
  * Build: `lodash modern -d -o ./index.js`
  * Copyright 2012-2015 The Dojo Foundation <http://dojofoundation.org/>
  * Based on Underscore.js 1.7.0 <http://underscorejs.org/LICENSE>
@@ -83,7 +634,7 @@
   var undefined;
 
   /** Used as the semantic version number. */
-  var VERSION = '3.2.0';
+  var VERSION = '3.3.0';
 
   /** Used to compose bitmasks for wrapper metadata. */
   var BIND_FLAG = 1,
@@ -394,6 +945,20 @@
       }
     }
     return -1;
+  }
+
+  /**
+   * The base implementation of `_.isFunction` without support for environments
+   * with incorrect `typeof` results.
+   *
+   * @private
+   * @param {*} value The value to check.
+   * @returns {boolean} Returns `true` if `value` is correctly classified, else `false`.
+   */
+  function baseIsFunction(value) {
+    // Avoid a Chakra JIT bug in compatibility modes of IE 11.
+    // See https://github.com/jashkenas/underscore/issues/1621 for more details.
+    return typeof value == 'function' || false;
   }
 
   /**
@@ -882,8 +1447,8 @@
      * `filter`, `flatten`, `flattenDeep`, `flow`, `flowRight`, `forEach`,
      * `forEachRight`, `forIn`, `forInRight`, `forOwn`, `forOwnRight`, `functions`,
      * `groupBy`, `indexBy`, `initial`, `intersection`, `invert`, `invoke`, `keys`,
-     * `keysIn`, `map`, `mapValues`, `matches`, `memoize`, `merge`, `mixin`,
-     * `negate`, `noop`, `omit`, `once`, `pairs`, `partial`, `partialRight`,
+     * `keysIn`, `map`, `mapValues`, `matches`, `matchesProperty`, `memoize`, `merge`,
+     * `mixin`, `negate`, `noop`, `omit`, `once`, `pairs`, `partial`, `partialRight`,
      * `partition`, `pick`, `plant`, `pluck`, `property`, `propertyOf`, `pull`,
      * `pullAt`, `push`, `range`, `rearg`, `reject`, `remove`, `rest`, `reverse`,
      * `shuffle`, `slice`, `sort`, `sortBy`, `sortByAll`, `splice`, `spread`,
@@ -920,11 +1485,15 @@
      * var wrapped = _([1, 2, 3]);
      *
      * // returns an unwrapped value
-     * wrapped.reduce(function(sum, n) { return sum + n; });
+     * wrapped.reduce(function(sum, n) {
+     *   return sum + n;
+     * });
      * // => 6
      *
      * // returns a wrapped value
-     * var squares = wrapped.map(function(n) { return n * n; });
+     * var squares = wrapped.map(function(n) {
+     *   return n * n;
+     * });
      *
      * _.isArray(squares);
      * // => false
@@ -942,6 +1511,15 @@
         }
       }
       return new LodashWrapper(value);
+    }
+
+    /**
+     * The function whose prototype all chaining wrappers inherit from.
+     *
+     * @private
+     */
+    function baseLodash() {
+      // No operation performed.
     }
 
     /**
@@ -2382,7 +2960,7 @@
 
         if (isStrictComparable(value)) {
           return function(object) {
-            return object != null && value === object[key] && hasOwnProperty.call(object, key);
+            return object != null && object[key] === value && hasOwnProperty.call(object, key);
           };
         }
       }
@@ -2432,8 +3010,10 @@
      * @returns {Object} Returns the destination object.
      */
     function baseMerge(object, source, customizer, stackA, stackB) {
+      if (!isObject(object)) {
+        return object;
+      }
       var isSrcArr = isLength(source.length) && (isArray(source) || isTypedArray(source));
-
       (isSrcArr ? arrayEach : baseForOwn)(source, function(srcValue, key, source) {
         if (isObjectLike(srcValue)) {
           stackA || (stackA = []);
@@ -3717,7 +4297,8 @@
       } else {
         prereq = type == 'string' && index in object;
       }
-      return prereq && object[index] === value;
+      var other = object[index];
+      return prereq && (value === value ? value === other : other !== other);
     }
 
     /**
@@ -4112,7 +4693,7 @@
      * @returns {Array} Returns the new array of filtered values.
      * @example
      *
-     * _.difference([1, 2, 3], [5, 2, 10]);
+     * _.difference([1, 2, 3], [4, 2]);
      * // => [1, 3]
      */
     function difference() {
@@ -4204,14 +4785,14 @@
      * Elements are dropped until `predicate` returns falsey. The predicate is
      * bound to `thisArg` and invoked with three arguments; (value, index, array).
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that match the properties of the given
      * object, else `false`.
      *
@@ -4220,29 +4801,31 @@
      * @category Array
      * @param {Array} array The array to query.
      * @param {Function|Object|string} [predicate=_.identity] The function invoked
-     *  per element.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `predicate`.
      * @returns {Array} Returns the slice of `array`.
      * @example
      *
-     * _.dropRightWhile([1, 2, 3], function(n) { return n > 1; });
+     * _.dropRightWhile([1, 2, 3], function(n) {
+     *   return n > 1;
+     * });
      * // => [1]
      *
      * var users = [
-     *   { 'user': 'barney',  'age': 36, 'active': true },
-     *   { 'user': 'fred',    'age': 40, 'active': false },
-     *   { 'user': 'pebbles', 'age': 1,  'active': false }
+     *   { 'user': 'barney',  'active': true },
+     *   { 'user': 'fred',    'active': false },
+     *   { 'user': 'pebbles', 'active': false }
      * ];
      *
-     * // using the "_.matches" callback shorthand
-     * _.pluck(_.dropRightWhile(users, { 'age': 1, 'active': false }), 'user');
+     * // using the `_.matches` callback shorthand
+     * _.pluck(_.dropRightWhile(users, { 'user': pebbles, 'active': false }), 'user');
      * // => ['barney', 'fred']
      *
-     * // using the "_.matchesProperty" callback shorthand
+     * // using the `_.matchesProperty` callback shorthand
      * _.pluck(_.dropRightWhile(users, 'active', false), 'user');
      * // => ['barney']
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.pluck(_.dropRightWhile(users, 'active'), 'user');
      * // => ['barney', 'fred', 'pebbles']
      */
@@ -4261,14 +4844,14 @@
      * Elements are dropped until `predicate` returns falsey. The predicate is
      * bound to `thisArg` and invoked with three arguments; (value, index, array).
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -4277,29 +4860,31 @@
      * @category Array
      * @param {Array} array The array to query.
      * @param {Function|Object|string} [predicate=_.identity] The function invoked
-     *  per element.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `predicate`.
      * @returns {Array} Returns the slice of `array`.
      * @example
      *
-     * _.dropWhile([1, 2, 3], function(n) { return n < 3; });
+     * _.dropWhile([1, 2, 3], function(n) {
+     *   return n < 3;
+     * });
      * // => [3]
      *
      * var users = [
-     *   { 'user': 'barney',  'age': 36, 'active': false },
-     *   { 'user': 'fred',    'age': 40, 'active': false },
-     *   { 'user': 'pebbles', 'age': 1,  'active': true }
+     *   { 'user': 'barney',  'active': false },
+     *   { 'user': 'fred',    'active': false },
+     *   { 'user': 'pebbles', 'active': true }
      * ];
      *
-     * // using the "_.matches" callback shorthand
-     * _.pluck(_.dropWhile(users, { 'age': 36, 'active': false }), 'user');
+     * // using the `_.matches` callback shorthand
+     * _.pluck(_.dropWhile(users, { 'user': 'barney', 'active': false }), 'user');
      * // => ['fred', 'pebbles']
      *
-     * // using the "_.matchesProperty" callback shorthand
+     * // using the `_.matchesProperty` callback shorthand
      * _.pluck(_.dropWhile(users, 'active', false), 'user');
      * // => ['pebbles']
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.pluck(_.dropWhile(users, 'active'), 'user');
      * // => ['barney', 'fred', 'pebbles']
      */
@@ -4320,7 +4905,9 @@
      *
      * **Note:** This method mutates `array`.
      *
-     * @private
+     * @static
+     * @memberOf _
+     * @category Array
      * @param {Array} array The array to fill.
      * @param {*} value The value to fill `array` with.
      * @param {number} [start=0] The start position.
@@ -4343,14 +4930,14 @@
      * This method is like `_.find` except that it returns the index of the first
      * element `predicate` returns truthy for, instead of the element itself.
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -4359,32 +4946,33 @@
      * @category Array
      * @param {Array} array The array to search.
      * @param {Function|Object|string} [predicate=_.identity] The function invoked
-     *  per iteration. If a property name or object is provided it is used to
-     *  create a "_.property" or "_.matches" style callback respectively.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `predicate`.
      * @returns {number} Returns the index of the found element, else `-1`.
      * @example
      *
      * var users = [
-     *   { 'user': 'barney',  'age': 36, 'active': false },
-     *   { 'user': 'fred',    'age': 40, 'active': true },
-     *   { 'user': 'pebbles', 'age': 1,  'active': false }
+     *   { 'user': 'barney',  'active': false },
+     *   { 'user': 'fred',    'active': false },
+     *   { 'user': 'pebbles', 'active': true }
      * ];
      *
-     * _.findIndex(users, function(chr) { return chr.age < 40; });
+     * _.findIndex(users, function(chr) {
+     *   return chr.user == 'barney';
+     * });
      * // => 0
      *
-     * // using the "_.matches" callback shorthand
-     * _.findIndex(users, { 'age': 40, 'active': true });
+     * // using the `_.matches` callback shorthand
+     * _.findIndex(users, { 'user': 'fred', 'active': false });
      * // => 1
      *
-     * // using the "_.matchesProperty" callback shorthand
-     * _.findIndex(users, 'age', 1);
-     * // => 2
+     * // using the `_.matchesProperty` callback shorthand
+     * _.findIndex(users, 'active', false);
+     * // => 0
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.findIndex(users, 'active');
-     * // => 1
+     * // => 2
      */
     function findIndex(array, predicate, thisArg) {
       var index = -1,
@@ -4403,14 +4991,14 @@
      * This method is like `_.findIndex` except that it iterates over elements
      * of `collection` from right to left.
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -4419,30 +5007,31 @@
      * @category Array
      * @param {Array} array The array to search.
      * @param {Function|Object|string} [predicate=_.identity] The function invoked
-     *  per iteration. If a property name or object is provided it is used to
-     *  create a "_.property" or "_.matches" style callback respectively.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `predicate`.
      * @returns {number} Returns the index of the found element, else `-1`.
      * @example
      *
      * var users = [
-     *   { 'user': 'barney',  'age': 36, 'active': true },
-     *   { 'user': 'fred',    'age': 40, 'active': false },
-     *   { 'user': 'pebbles', 'age': 1,  'active': false }
+     *   { 'user': 'barney',  'active': true },
+     *   { 'user': 'fred',    'active': false },
+     *   { 'user': 'pebbles', 'active': false }
      * ];
      *
-     * _.findLastIndex(users, function(chr) { return chr.age < 40; });
+     * _.findLastIndex(users, function(chr) {
+     *   return chr.user == 'pebbles';
+     * });
      * // => 2
      *
-     * // using the "_.matches" callback shorthand
-     * _.findLastIndex(users, { 'age': 36, 'active': true });
+     * // using the `_.matches` callback shorthand
+     * _.findLastIndex(users, { user': 'barney', 'active': true });
      * // => 0
      *
-     * // using the "_.matchesProperty" callback shorthand
-     * _.findLastIndex(users, 'age', 40);
+     * // using the `_.matchesProperty` callback shorthand
+     * _.findLastIndex(users, 'active', false);
      * // => 1
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.findLastIndex(users, 'active');
      * // => 0
      */
@@ -4491,11 +5080,11 @@
      * @returns {Array} Returns the new flattened array.
      * @example
      *
-     * _.flatten([1, [2], [3, [[4]]]]);
-     * // => [1, 2, 3, [[4]]];
+     * _.flatten([1, [2, 3, [4]]]);
+     * // => [1, 2, 3, [4]];
      *
      * // using `isDeep`
-     * _.flatten([1, [2], [3, [[4]]]], true);
+     * _.flatten([1, [2, 3, [4]]], true);
      * // => [1, 2, 3, 4];
      */
     function flatten(array, isDeep, guard) {
@@ -4516,7 +5105,7 @@
      * @returns {Array} Returns the new flattened array.
      * @example
      *
-     * _.flattenDeep([1, [2], [3, [[4]]]]);
+     * _.flattenDeep([1, [2, 3, [4]]]);
      * // => [1, 2, 3, 4];
      */
     function flattenDeep(array) {
@@ -4545,15 +5134,15 @@
      * @returns {number} Returns the index of the matched value, else `-1`.
      * @example
      *
-     * _.indexOf([1, 2, 3, 1, 2, 3], 2);
-     * // => 1
+     * _.indexOf([1, 2, 1, 2], 2);
+     * // => 2
      *
      * // using `fromIndex`
-     * _.indexOf([1, 2, 3, 1, 2, 3], 2, 3);
-     * // => 4
+     * _.indexOf([1, 2, 1, 2], 2, 2);
+     * // => 3
      *
      * // performing a binary search
-     * _.indexOf([4, 4, 5, 5, 6, 6], 5, true);
+     * _.indexOf([1, 1, 2, 2], 2, true);
      * // => 2
      */
     function indexOf(array, value, fromIndex) {
@@ -4604,9 +5193,8 @@
      * @param {...Array} [arrays] The arrays to inspect.
      * @returns {Array} Returns the new array of shared values.
      * @example
-     *
-     * _.intersection([1, 2, 3], [5, 2, 1, 4], [2, 1]);
-     * // => [1, 2]
+     * _.intersection([1, 2], [4, 2], [2, 1]);
+     * // => [2]
      */
     function intersection() {
       var args = [],
@@ -4682,15 +5270,15 @@
      * @returns {number} Returns the index of the matched value, else `-1`.
      * @example
      *
-     * _.lastIndexOf([1, 2, 3, 1, 2, 3], 2);
-     * // => 4
+     * _.lastIndexOf([1, 2, 1, 2], 2);
+     * // => 3
      *
      * // using `fromIndex`
-     * _.lastIndexOf([1, 2, 3, 1, 2, 3], 2, 3);
+     * _.lastIndexOf([1, 2, 1, 2], 2, 2);
      * // => 1
      *
      * // performing a binary search
-     * _.lastIndexOf([4, 4, 5, 5, 6, 6], 5, true);
+     * _.lastIndexOf([1, 1, 2, 2], 2, true);
      * // => 3
      */
     function lastIndexOf(array, value, fromIndex) {
@@ -4736,6 +5324,7 @@
      * @example
      *
      * var array = [1, 2, 3, 1, 2, 3];
+     *
      * _.pull(array, 2, 3);
      * console.log(array);
      * // => [1, 1]
@@ -4777,7 +5366,7 @@
      * @example
      *
      * var array = [5, 10, 15, 20];
-     * var evens = _.pullAt(array, [1, 3]);
+     * var evens = _.pullAt(array, 1, 3);
      *
      * console.log(array);
      * // => [5, 15]
@@ -4794,14 +5383,14 @@
      * and returns an array of the removed elements. The predicate is bound to
      * `thisArg` and invoked with three arguments; (value, index, array).
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -4812,14 +5401,15 @@
      * @category Array
      * @param {Array} array The array to modify.
      * @param {Function|Object|string} [predicate=_.identity] The function invoked
-     *  per iteration. If a property name or object is provided it is used to
-     *  create a "_.property" or "_.matches" style callback respectively.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `predicate`.
      * @returns {Array} Returns the new array of removed elements.
      * @example
      *
      * var array = [1, 2, 3, 4];
-     * var evens = _.remove(array, function(n) { return n % 2 == 0; });
+     * var evens = _.remove(array, function(n) {
+     *   return n % 2 == 0;
+     * });
      *
      * console.log(array);
      * // => [1, 3]
@@ -4895,14 +5485,14 @@
      * to compute their sort ranking. The iteratee is bound to `thisArg` and
      * invoked with one argument; (value).
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -4912,8 +5502,7 @@
      * @param {Array} array The sorted array to inspect.
      * @param {*} value The value to evaluate.
      * @param {Function|Object|string} [iteratee=_.identity] The function invoked
-     *  per iteration. If a property name or object is provided it is used to
-     *  create a "_.property" or "_.matches" style callback respectively.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `iteratee`.
      * @returns {number} Returns the index at which `value` should be inserted
      *  into `array`.
@@ -4922,7 +5511,7 @@
      * _.sortedIndex([30, 50], 40);
      * // => 1
      *
-     * _.sortedIndex([4, 4, 5, 5, 6, 6], 5);
+     * _.sortedIndex([4, 4, 5, 5], 5);
      * // => 2
      *
      * var dict = { 'data': { 'thirty': 30, 'forty': 40, 'fifty': 50 } };
@@ -4933,7 +5522,7 @@
      * }, dict);
      * // => 1
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.sortedIndex([{ 'x': 30 }, { 'x': 50 }], { 'x': 40 }, 'x');
      * // => 1
      */
@@ -4955,14 +5544,13 @@
      * @param {Array} array The sorted array to inspect.
      * @param {*} value The value to evaluate.
      * @param {Function|Object|string} [iteratee=_.identity] The function invoked
-     *  per iteration. If a property name or object is provided it is used to
-     *  create a "_.property" or "_.matches" style callback respectively.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `iteratee`.
      * @returns {number} Returns the index at which `value` should be inserted
      *  into `array`.
      * @example
      *
-     * _.sortedLastIndex([4, 4, 5, 5, 6, 6], 5);
+     * _.sortedLastIndex([4, 4, 5, 5], 5);
      * // => 4
      */
     function sortedLastIndex(array, value, iteratee, thisArg) {
@@ -5048,14 +5636,14 @@
      * taken until `predicate` returns falsey. The predicate is bound to `thisArg`
      * and invoked with three arguments; (value, index, array).
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -5064,29 +5652,31 @@
      * @category Array
      * @param {Array} array The array to query.
      * @param {Function|Object|string} [predicate=_.identity] The function invoked
-     *  per element.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `predicate`.
      * @returns {Array} Returns the slice of `array`.
      * @example
      *
-     * _.takeRightWhile([1, 2, 3], function(n) { return n > 1; });
+     * _.takeRightWhile([1, 2, 3], function(n) {
+     *   return n > 1;
+     * });
      * // => [2, 3]
      *
      * var users = [
-     *   { 'user': 'barney',  'age': 36, 'active': true },
-     *   { 'user': 'fred',    'age': 40, 'active': false },
-     *   { 'user': 'pebbles', 'age': 1,  'active': false }
+     *   { 'user': 'barney',  'active': true },
+     *   { 'user': 'fred',    'active': false },
+     *   { 'user': 'pebbles', 'active': false }
      * ];
      *
-     * // using the "_.matches" callback shorthand
-     * _.pluck(_.takeRightWhile(users, { 'age': 1, 'active': true }), 'user');
+     * // using the `_.matches` callback shorthand
+     * _.pluck(_.takeRightWhile(users, { 'user': 'pebbles', 'active': false }), 'user');
      * // => ['pebbles']
      *
-     * // using the "_.matchesProperty" callback shorthand
+     * // using the `_.matchesProperty` callback shorthand
      * _.pluck(_.takeRightWhile(users, 'active', false), 'user');
      * // => ['fred', 'pebbles']
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.pluck(_.takeRightWhile(users, 'active'), 'user');
      * // => []
      */
@@ -5105,14 +5695,14 @@
      * are taken until `predicate` returns falsey. The predicate is bound to
      * `thisArg` and invoked with three arguments; (value, index, array).
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -5121,29 +5711,31 @@
      * @category Array
      * @param {Array} array The array to query.
      * @param {Function|Object|string} [predicate=_.identity] The function invoked
-     *  per element.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `predicate`.
      * @returns {Array} Returns the slice of `array`.
      * @example
      *
-     * _.takeWhile([1, 2, 3], function(n) { return n < 3; });
+     * _.takeWhile([1, 2, 3], function(n) {
+     *   return n < 3;
+     * });
      * // => [1, 2]
      *
      * var users = [
-     *   { 'user': 'barney',  'age': 36, 'active': false },
-     *   { 'user': 'fred',    'age': 40, 'active': false },
-     *   { 'user': 'pebbles', 'age': 1,  'active': true }
+     *   { 'user': 'barney',  'active': false },
+     *   { 'user': 'fred',    'active': false},
+     *   { 'user': 'pebbles', 'active': true }
      * ];
      *
-     * // using the "_.matches" callback shorthand
-     * _.pluck(_.takeWhile(users, { 'age': 36, 'active': true }), 'user');
+     * // using the `_.matches` callback shorthand
+     * _.pluck(_.takeWhile(users, { 'user': 'barney', 'active': false }), 'user');
      * // => ['barney']
      *
-     * // using the "_.matchesProperty" callback shorthand
+     * // using the `_.matchesProperty` callback shorthand
      * _.pluck(_.takeWhile(users, 'active', false), 'user');
      * // => ['barney', 'fred']
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.pluck(_.takeWhile(users, 'active'), 'user');
      * // => []
      */
@@ -5174,8 +5766,8 @@
      * @returns {Array} Returns the new array of combined values.
      * @example
      *
-     * _.union([1, 2, 3], [5, 2, 1, 4], [2, 1]);
-     * // => [1, 2, 3, 5, 4]
+     * _.union([1, 2], [4, 2], [2, 1]);
+     * // => [1, 2, 4]
      */
     function union() {
       return baseUniq(baseFlatten(arguments, false, true));
@@ -5189,14 +5781,14 @@
      * uniqueness is computed. The `iteratee` is bound to `thisArg` and invoked
      * with three arguments; (value, index, array).
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -5212,8 +5804,6 @@
      * @param {Array} array The array to inspect.
      * @param {boolean} [isSorted] Specify the array is sorted.
      * @param {Function|Object|string} [iteratee] The function invoked per iteration.
-     *  If a property name or object is provided it is used to create a "_.property"
-     *  or "_.matches" style callback respectively.
      * @param {*} [thisArg] The `this` binding of `iteratee`.
      * @returns {Array} Returns the new duplicate-value-free array.
      * @example
@@ -5226,10 +5816,12 @@
      * // => [1, 2]
      *
      * // using an iteratee function
-     * _.uniq([1, 2.5, 1.5, 2], function(n) { return this.floor(n); }, Math);
+     * _.uniq([1, 2.5, 1.5, 2], function(n) {
+     *   return this.floor(n);
+     * }, Math);
      * // => [1, 2.5]
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.uniq([{ 'x': 1 }, { 'x': 2 }, { 'x': 1 }], 'x');
      * // => [{ 'x': 1 }, { 'x': 2 }]
      */
@@ -5238,8 +5830,7 @@
       if (!length) {
         return [];
       }
-      // Juggle arguments.
-      if (typeof isSorted != 'boolean' && isSorted != null) {
+      if (isSorted != null && typeof isSorted != 'boolean') {
         thisArg = iteratee;
         iteratee = isIterateeCall(array, isSorted, thisArg) ? null : isSorted;
         isSorted = false;
@@ -5299,8 +5890,8 @@
      * @returns {Array} Returns the new array of filtered values.
      * @example
      *
-     * _.without([1, 2, 1, 0, 3, 1, 4], 0, 1);
-     * // => [2, 3, 4]
+     * _.without([1, 2, 1, 3], 1, 2);
+     * // => [3]
      */
     function without(array) {
       return baseDifference(array, baseSlice(arguments, 1));
@@ -5318,11 +5909,8 @@
      * @returns {Array} Returns the new array of values.
      * @example
      *
-     * _.xor([1, 2, 3], [5, 2, 1, 4]);
-     * // => [3, 5, 4]
-     *
-     * _.xor([1, 2, 5], [2, 3, 5], [3, 4, 5]);
-     * // => [1, 4, 5]
+     * _.xor([1, 2], [4, 2]);
+     * // => [1, 4]
      */
     function xor() {
       var index = -1,
@@ -5421,7 +6009,9 @@
      *
      * var youngest = _.chain(users)
      *   .sortBy('age')
-     *   .map(function(chr) { return chr.user + ' is ' + chr.age; })
+     *   .map(function(chr) {
+     *     return chr.user + ' is ' + chr.age;
+     *   })
      *   .first()
      *   .value();
      * // => 'pebbles is 1'
@@ -5448,7 +6038,9 @@
      * @example
      *
      * _([1, 2, 3])
-     *  .tap(function(array) { array.pop(); })
+     *  .tap(function(array) {
+     *    array.pop();
+     *  })
      *  .reverse()
      *  .value();
      * // => [2, 1]
@@ -5472,7 +6064,9 @@
      *
      * _([1, 2, 3])
      *  .last()
-     *  .thru(function(value) { return [value]; })
+     *  .thru(function(value) {
+     *    return [value];
+     *  })
      *  .value();
      * // => [3]
      */
@@ -5548,7 +6142,9 @@
      * @example
      *
      * var array = [1, 2];
-     * var wrapper = _(array).map(_.partial(Math.pow, _, 2));
+     * var wrapper = _(array).map(function(value) {
+     *   return Math.pow(value, 2);
+     * });
      *
      * var other = [3, 4];
      * var otherWrapper = wrapper.plant(other);
@@ -5563,7 +6159,7 @@
       var result,
           parent = this;
 
-      while (parent instanceof LodashWrapper) {
+      while (parent instanceof baseLodash) {
         var clone = wrapperClone(parent);
         if (result) {
           previous.__wrapped__ = clone;
@@ -5659,8 +6255,8 @@
      * @returns {Array} Returns the new array of picked elements.
      * @example
      *
-     * _.at(['a', 'b', 'c', 'd', 'e'], [0, 2, 4]);
-     * // => ['a', 'c', 'e']
+     * _.at(['a', 'b', 'c'], [0, 2]);
+     * // => ['a', 'c']
      *
      * _.at(['fred', 'barney', 'pebbles'], 0, 2);
      * // => ['fred', 'pebbles']
@@ -5674,71 +6270,20 @@
     }
 
     /**
-     * Checks if `value` is in `collection` using `SameValueZero` for equality
-     * comparisons. If `fromIndex` is negative, it is used as the offset from
-     * the end of `collection`.
-     *
-     * **Note:** `SameValueZero` comparisons are like strict equality comparisons,
-     * e.g. `===`, except that `NaN` matches `NaN`. See the
-     * [ES spec](https://people.mozilla.org/~jorendorff/es6-draft.html#sec-samevaluezero)
-     * for more details.
-     *
-     * @static
-     * @memberOf _
-     * @alias contains, include
-     * @category Collection
-     * @param {Array|Object|string} collection The collection to search.
-     * @param {*} target The value to search for.
-     * @param {number} [fromIndex=0] The index to search from.
-     * @returns {boolean} Returns `true` if a matching element is found, else `false`.
-     * @example
-     *
-     * _.includes([1, 2, 3], 1);
-     * // => true
-     *
-     * _.includes([1, 2, 3], 1, 2);
-     * // => false
-     *
-     * _.includes({ 'user': 'fred', 'age': 40 }, 'fred');
-     * // => true
-     *
-     * _.includes('pebbles', 'eb');
-     * // => true
-     */
-    function includes(collection, target, fromIndex) {
-      var length = collection ? collection.length : 0;
-      if (!isLength(length)) {
-        collection = values(collection);
-        length = collection.length;
-      }
-      if (!length) {
-        return false;
-      }
-      if (typeof fromIndex == 'number') {
-        fromIndex = fromIndex < 0 ? nativeMax(length + fromIndex, 0) : (fromIndex || 0);
-      } else {
-        fromIndex = 0;
-      }
-      return (typeof collection == 'string' || !isArray(collection) && isString(collection))
-        ? (fromIndex < length && collection.indexOf(target, fromIndex) > -1)
-        : (getIndexOf(collection, target, fromIndex) > -1);
-    }
-
-    /**
      * Creates an object composed of keys generated from the results of running
      * each element of `collection` through `iteratee`. The corresponding value
      * of each key is the number of times the key was returned by `iteratee`.
      * The `iteratee` is bound to `thisArg` and invoked with three arguments;
      * (value, index|key, collection).
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -5747,16 +6292,19 @@
      * @category Collection
      * @param {Array|Object|string} collection The collection to iterate over.
      * @param {Function|Object|string} [iteratee=_.identity] The function invoked
-     *  per iteration. If a property name or object is provided it is used to
-     *  create a "_.property" or "_.matches" style callback respectively.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `iteratee`.
      * @returns {Object} Returns the composed aggregate object.
      * @example
      *
-     * _.countBy([4.3, 6.1, 6.4], function(n) { return Math.floor(n); });
+     * _.countBy([4.3, 6.1, 6.4], function(n) {
+     *   return Math.floor(n);
+     * });
      * // => { '4': 1, '6': 2 }
      *
-     * _.countBy([4.3, 6.1, 6.4], function(n) { return this.floor(n); }, Math);
+     * _.countBy([4.3, 6.1, 6.4], function(n) {
+     *   return this.floor(n);
+     * }, Math);
      * // => { '4': 1, '6': 2 }
      *
      * _.countBy(['one', 'two', 'three'], 'length');
@@ -5771,14 +6319,14 @@
      * The predicate is bound to `thisArg` and invoked with three arguments;
      * (value, index|key, collection).
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -5788,30 +6336,29 @@
      * @category Collection
      * @param {Array|Object|string} collection The collection to iterate over.
      * @param {Function|Object|string} [predicate=_.identity] The function invoked
-     *  per iteration. If a property name or object is provided it is used to
-     *  create a "_.property" or "_.matches" style callback respectively.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `predicate`.
      * @returns {boolean} Returns `true` if all elements pass the predicate check,
      *  else `false`.
      * @example
      *
-     * _.every([true, 1, null, 'yes']);
+     * _.every([true, 1, null, 'yes'], Boolean);
      * // => false
      *
      * var users = [
-     *   { 'user': 'barney', 'age': 36, 'active': false },
-     *   { 'user': 'fred',   'age': 40, 'active': false }
+     *   { 'user': 'barney', 'active': false },
+     *   { 'user': 'fred',   'active': false }
      * ];
      *
-     * // using the "_.matches" callback shorthand
-     * _.every(users, { 'age': 36, 'active': false });
+     * // using the `_.matches` callback shorthand
+     * _.every(users, { 'user': 'barney', 'active': false });
      * // => false
      *
-     * // using the "_.matchesProperty" callback shorthand
+     * // using the `_.matchesProperty` callback shorthand
      * _.every(users, 'active', false);
      * // => true
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.every(users, 'active');
      * // => false
      */
@@ -5828,14 +6375,14 @@
      * `predicate` returns truthy for. The predicate is bound to `thisArg` and
      * invoked with three arguments; (value, index|key, collection).
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -5845,29 +6392,30 @@
      * @category Collection
      * @param {Array|Object|string} collection The collection to iterate over.
      * @param {Function|Object|string} [predicate=_.identity] The function invoked
-     *  per iteration. If a property name or object is provided it is used to
-     *  create a "_.property" or "_.matches" style callback respectively.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `predicate`.
      * @returns {Array} Returns the new filtered array.
      * @example
      *
-     * var evens = _.filter([1, 2, 3, 4], function(n) { return n % 2 == 0; });
-     * // => [2, 4]
+     * _.filter([4, 5, 6], function(n) {
+     *   return n % 2 == 0;
+     * });
+     * // => [4, 6]
      *
      * var users = [
      *   { 'user': 'barney', 'age': 36, 'active': true },
      *   { 'user': 'fred',   'age': 40, 'active': false }
      * ];
      *
-     * // using the "_.matches" callback shorthand
+     * // using the `_.matches` callback shorthand
      * _.pluck(_.filter(users, { 'age': 36, 'active': true }), 'user');
      * // => ['barney']
      *
-     * // using the "_.matchesProperty" callback shorthand
+     * // using the `_.matchesProperty` callback shorthand
      * _.pluck(_.filter(users, 'active', false), 'user');
      * // => ['fred']
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.pluck(_.filter(users, 'active'), 'user');
      * // => ['barney']
      */
@@ -5882,14 +6430,14 @@
      * `predicate` returns truthy for. The predicate is bound to `thisArg` and
      * invoked with three arguments; (value, index|key, collection).
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -5899,8 +6447,7 @@
      * @category Collection
      * @param {Array|Object|string} collection The collection to search.
      * @param {Function|Object|string} [predicate=_.identity] The function invoked
-     *  per iteration. If a property name or object is provided it is used to
-     *  create a "_.property" or "_.matches" style callback respectively.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `predicate`.
      * @returns {*} Returns the matched element, else `undefined`.
      * @example
@@ -5911,18 +6458,20 @@
      *   { 'user': 'pebbles', 'age': 1,  'active': true }
      * ];
      *
-     * _.result(_.find(users, function(chr) { return chr.age < 40; }), 'user');
+     * _.result(_.find(users, function(chr) {
+     *   return chr.age < 40;
+     * }), 'user');
      * // => 'barney'
      *
-     * // using the "_.matches" callback shorthand
+     * // using the `_.matches` callback shorthand
      * _.result(_.find(users, { 'age': 1, 'active': true }), 'user');
      * // => 'pebbles'
      *
-     * // using the "_.matchesProperty" callback shorthand
+     * // using the `_.matchesProperty` callback shorthand
      * _.result(_.find(users, 'active', false), 'user');
      * // => 'fred'
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.result(_.find(users, 'active'), 'user');
      * // => 'barney'
      */
@@ -5944,13 +6493,14 @@
      * @category Collection
      * @param {Array|Object|string} collection The collection to search.
      * @param {Function|Object|string} [predicate=_.identity] The function invoked
-     *  per iteration. If a property name or object is provided it is used to
-     *  create a "_.property" or "_.matches" style callback respectively.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `predicate`.
      * @returns {*} Returns the matched element, else `undefined`.
      * @example
      *
-     * _.findLast([1, 2, 3, 4], function(n) { return n % 2 == 1; });
+     * _.findLast([1, 2, 3, 4], function(n) {
+     *   return n % 2 == 1;
+     * });
      * // => 3
      */
     function findLast(collection, predicate, thisArg) {
@@ -6011,10 +6561,14 @@
      * @returns {Array|Object|string} Returns `collection`.
      * @example
      *
-     * _([1, 2, 3]).forEach(function(n) { console.log(n); }).value();
+     * _([1, 2]).forEach(function(n) {
+     *   console.log(n);
+     * }).value();
      * // => logs each value from left to right and returns the array
      *
-     * _.forEach({ 'one': 1, 'two': 2, 'three': 3 }, function(n, key) { console.log(n, key); });
+     * _.forEach({ 'a': 1, 'b': 2 }, function(n, key) {
+     *   console.log(n, key);
+     * });
      * // => logs each value-key pair and returns the object (iteration order is not guaranteed)
      */
     function forEach(collection, iteratee, thisArg) {
@@ -6037,7 +6591,9 @@
      * @returns {Array|Object|string} Returns `collection`.
      * @example
      *
-     * _([1, 2, 3]).forEachRight(function(n) { console.log(n); }).join(',');
+     * _([1, 2]).forEachRight(function(n) {
+     *   console.log(n);
+     * }).join(',');
      * // => logs each value from right to left and returns the array
      */
     function forEachRight(collection, iteratee, thisArg) {
@@ -6053,14 +6609,14 @@
      * The `iteratee` is bound to `thisArg` and invoked with three arguments;
      * (value, index|key, collection).
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -6069,19 +6625,22 @@
      * @category Collection
      * @param {Array|Object|string} collection The collection to iterate over.
      * @param {Function|Object|string} [iteratee=_.identity] The function invoked
-     *  per iteration. If a property name or object is provided it is used to
-     *  create a "_.property" or "_.matches" style callback respectively.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `iteratee`.
      * @returns {Object} Returns the composed aggregate object.
      * @example
      *
-     * _.groupBy([4.2, 6.1, 6.4], function(n) { return Math.floor(n); });
+     * _.groupBy([4.2, 6.1, 6.4], function(n) {
+     *   return Math.floor(n);
+     * });
      * // => { '4': [4.2], '6': [6.1, 6.4] }
      *
-     * _.groupBy([4.2, 6.1, 6.4], function(n) { return this.floor(n); }, Math);
+     * _.groupBy([4.2, 6.1, 6.4], function(n) {
+     *   return this.floor(n);
+     * }, Math);
      * // => { '4': [4.2], '6': [6.1, 6.4] }
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.groupBy(['one', 'two', 'three'], 'length');
      * // => { '3': ['one', 'two'], '5': ['three'] }
      */
@@ -6094,20 +6653,71 @@
     });
 
     /**
+     * Checks if `value` is in `collection` using `SameValueZero` for equality
+     * comparisons. If `fromIndex` is negative, it is used as the offset from
+     * the end of `collection`.
+     *
+     * **Note:** `SameValueZero` comparisons are like strict equality comparisons,
+     * e.g. `===`, except that `NaN` matches `NaN`. See the
+     * [ES spec](https://people.mozilla.org/~jorendorff/es6-draft.html#sec-samevaluezero)
+     * for more details.
+     *
+     * @static
+     * @memberOf _
+     * @alias contains, include
+     * @category Collection
+     * @param {Array|Object|string} collection The collection to search.
+     * @param {*} target The value to search for.
+     * @param {number} [fromIndex=0] The index to search from.
+     * @returns {boolean} Returns `true` if a matching element is found, else `false`.
+     * @example
+     *
+     * _.includes([1, 2, 3], 1);
+     * // => true
+     *
+     * _.includes([1, 2, 3], 1, 2);
+     * // => false
+     *
+     * _.includes({ 'user': 'fred', 'age': 40 }, 'fred');
+     * // => true
+     *
+     * _.includes('pebbles', 'eb');
+     * // => true
+     */
+    function includes(collection, target, fromIndex) {
+      var length = collection ? collection.length : 0;
+      if (!isLength(length)) {
+        collection = values(collection);
+        length = collection.length;
+      }
+      if (!length) {
+        return false;
+      }
+      if (typeof fromIndex == 'number') {
+        fromIndex = fromIndex < 0 ? nativeMax(length + fromIndex, 0) : (fromIndex || 0);
+      } else {
+        fromIndex = 0;
+      }
+      return (typeof collection == 'string' || !isArray(collection) && isString(collection))
+        ? (fromIndex < length && collection.indexOf(target, fromIndex) > -1)
+        : (getIndexOf(collection, target, fromIndex) > -1);
+    }
+
+    /**
      * Creates an object composed of keys generated from the results of running
      * each element of `collection` through `iteratee`. The corresponding value
      * of each key is the last element responsible for generating the key. The
      * iteratee function is bound to `thisArg` and invoked with three arguments;
      * (value, index|key, collection).
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -6116,8 +6726,7 @@
      * @category Collection
      * @param {Array|Object|string} collection The collection to iterate over.
      * @param {Function|Object|string} [iteratee=_.identity] The function invoked
-     *  per iteration. If a property name or object is provided it is used to
-     *  create a "_.property" or "_.matches" style callback respectively.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `iteratee`.
      * @returns {Object} Returns the composed aggregate object.
      * @example
@@ -6130,10 +6739,14 @@
      * _.indexBy(keyData, 'dir');
      * // => { 'left': { 'dir': 'left', 'code': 97 }, 'right': { 'dir': 'right', 'code': 100 } }
      *
-     * _.indexBy(keyData, function(object) { return String.fromCharCode(object.code); });
+     * _.indexBy(keyData, function(object) {
+     *   return String.fromCharCode(object.code);
+     * });
      * // => { 'a': { 'dir': 'left', 'code': 97 }, 'd': { 'dir': 'right', 'code': 100 } }
      *
-     * _.indexBy(keyData, function(object) { return this.fromCharCode(object.code); }, String);
+     * _.indexBy(keyData, function(object) {
+     *   return this.fromCharCode(object.code);
+     * }, String);
      * // => { 'a': { 'dir': 'left', 'code': 97 }, 'd': { 'dir': 'right', 'code': 100 } }
      */
     var indexBy = createAggregator(function(result, value, key) {
@@ -6171,14 +6784,14 @@
      * `iteratee`. The `iteratee` is bound to `thisArg` and invoked with three
      * arguments; (value, index|key, collection).
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -6197,24 +6810,28 @@
      * @category Collection
      * @param {Array|Object|string} collection The collection to iterate over.
      * @param {Function|Object|string} [iteratee=_.identity] The function invoked
-     *  per iteration. If a property name or object is provided it is used to
-     *  create a "_.property" or "_.matches" style callback respectively.
+     *  per iteration.
+     *  create a `_.property` or `_.matches` style callback respectively.
      * @param {*} [thisArg] The `this` binding of `iteratee`.
      * @returns {Array} Returns the new mapped array.
      * @example
      *
-     * _.map([1, 2, 3], function(n) { return n * 3; });
-     * // => [3, 6, 9]
+     * function timesThree(n) {
+     *   return n * 3;
+     * }
      *
-     * _.map({ 'one': 1, 'two': 2, 'three': 3 }, function(n) { return n * 3; });
-     * // => [3, 6, 9] (iteration order is not guaranteed)
+     * _.map([1, 2], timesThree);
+     * // => [3, 6]
+     *
+     * _.map({ 'a': 1, 'b': 2 }, timesThree);
+     * // => [3, 6] (iteration order is not guaranteed)
      *
      * var users = [
      *   { 'user': 'barney' },
      *   { 'user': 'fred' }
      * ];
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.map(users, 'user');
      * // => ['barney', 'fred']
      */
@@ -6231,14 +6848,14 @@
      * is ranked. The `iteratee` is bound to `thisArg` and invoked with three
      * arguments; (value, index, collection).
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -6247,8 +6864,6 @@
      * @category Collection
      * @param {Array|Object|string} collection The collection to iterate over.
      * @param {Function|Object|string} [iteratee] The function invoked per iteration.
-     *  If a property name or object is provided it is used to create a "_.property"
-     *  or "_.matches" style callback respectively.
      * @param {*} [thisArg] The `this` binding of `iteratee`.
      * @returns {*} Returns the maximum value.
      * @example
@@ -6264,10 +6879,12 @@
      *   { 'user': 'fred',   'age': 40 }
      * ];
      *
-     * _.max(users, function(chr) { return chr.age; });
+     * _.max(users, function(chr) {
+     *   return chr.age;
+     * });
      * // => { 'user': 'fred', 'age': 40 };
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.max(users, 'age');
      * // => { 'user': 'fred', 'age': 40 };
      */
@@ -6280,14 +6897,14 @@
      * is ranked. The `iteratee` is bound to `thisArg` and invoked with three
      * arguments; (value, index, collection).
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -6296,8 +6913,6 @@
      * @category Collection
      * @param {Array|Object|string} collection The collection to iterate over.
      * @param {Function|Object|string} [iteratee] The function invoked per iteration.
-     *  If a property name or object is provided it is used to create a "_.property"
-     *  or "_.matches" style callback respectively.
      * @param {*} [thisArg] The `this` binding of `iteratee`.
      * @returns {*} Returns the minimum value.
      * @example
@@ -6313,10 +6928,12 @@
      *   { 'user': 'fred',   'age': 40 }
      * ];
      *
-     * _.min(users, function(chr) { return chr.age; });
+     * _.min(users, function(chr) {
+     *   return chr.age;
+     * });
      * // => { 'user': 'barney', 'age': 36 };
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.min(users, 'age');
      * // => { 'user': 'barney', 'age': 36 };
      */
@@ -6328,14 +6945,14 @@
      * contains elements `predicate` returns falsey for. The predicate is bound
      * to `thisArg` and invoked with three arguments; (value, index|key, collection).
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -6344,16 +6961,19 @@
      * @category Collection
      * @param {Array|Object|string} collection The collection to iterate over.
      * @param {Function|Object|string} [predicate=_.identity] The function invoked
-     *  per iteration. If a property name or object is provided it is used to
-     *  create a "_.property" or "_.matches" style callback respectively.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `predicate`.
      * @returns {Array} Returns the array of grouped elements.
      * @example
      *
-     * _.partition([1, 2, 3], function(n) { return n % 2; });
+     * _.partition([1, 2, 3], function(n) {
+     *   return n % 2;
+     * });
      * // => [[1, 3], [2]]
      *
-     * _.partition([1.2, 2.3, 3.4], function(n) { return this.floor(n) % 2; }, Math);
+     * _.partition([1.2, 2.3, 3.4], function(n) {
+     *   return this.floor(n) % 2;
+     * }, Math);
      * // => [[1, 3], [2]]
      *
      * var users = [
@@ -6362,17 +6982,19 @@
      *   { 'user': 'pebbles', 'age': 1,  'active': false }
      * ];
      *
-     * var mapper = function(array) { return _.pluck(array, 'user'); };
+     * var mapper = function(array) {
+     *   return _.pluck(array, 'user');
+     * };
      *
-     * // using the "_.matches" callback shorthand
+     * // using the `_.matches` callback shorthand
      * _.map(_.partition(users, { 'age': 1, 'active': false }), mapper);
      * // => [['pebbles'], ['barney', 'fred']]
      *
-     * // using the "_.matchesProperty" callback shorthand
+     * // using the `_.matchesProperty` callback shorthand
      * _.map(_.partition(users, 'active', false), mapper);
      * // => [['barney', 'pebbles'], ['fred']]
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.map(_.partition(users, 'active'), mapper);
      * // => [['fred'], ['barney', 'pebbles']]
      */
@@ -6432,14 +7054,16 @@
      * @returns {*} Returns the accumulated value.
      * @example
      *
-     * var sum = _.reduce([1, 2, 3], function(sum, n) { return sum + n; });
-     * // => 6
+     * _.reduce([1, 2], function(sum, n) {
+     *   return sum + n;
+     * });
+     * // => 3
      *
-     * var mapped = _.reduce({ 'a': 1, 'b': 2, 'c': 3 }, function(result, n, key) {
+     * _.reduce({ 'a': 1, 'b': 2 }, function(result, n, key) {
      *   result[key] = n * 3;
      *   return result;
      * }, {});
-     * // => { 'a': 3, 'b': 6, 'c': 9 } (iteration order is not guaranteed)
+     * // => { 'a': 3, 'b': 6 } (iteration order is not guaranteed)
      */
     function reduce(collection, iteratee, accumulator, thisArg) {
       var func = isArray(collection) ? arrayReduce : baseReduce;
@@ -6462,7 +7086,10 @@
      * @example
      *
      * var array = [[0, 1], [2, 3], [4, 5]];
-     * _.reduceRight(array, function(flattened, other) { return flattened.concat(other); }, []);
+     *
+     * _.reduceRight(array, function(flattened, other) {
+     *   return flattened.concat(other);
+     * }, []);
      * // => [4, 5, 2, 3, 0, 1]
      */
     function reduceRight(collection, iteratee, accumulator, thisArg) {
@@ -6474,14 +7101,14 @@
      * The opposite of `_.filter`; this method returns the elements of `collection`
      * that `predicate` does **not** return truthy for.
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -6490,13 +7117,14 @@
      * @category Collection
      * @param {Array|Object|string} collection The collection to iterate over.
      * @param {Function|Object|string} [predicate=_.identity] The function invoked
-     *  per iteration. If a property name or object is provided it is used to
-     *  create a "_.property" or "_.matches" style callback respectively.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `predicate`.
      * @returns {Array} Returns the new filtered array.
      * @example
      *
-     * var odds = _.reject([1, 2, 3, 4], function(n) { return n % 2 == 0; });
+     * _.reject([1, 2, 3, 4], function(n) {
+     *   return n % 2 == 0;
+     * });
      * // => [1, 3]
      *
      * var users = [
@@ -6504,15 +7132,15 @@
      *   { 'user': 'fred',   'age': 40, 'active': true }
      * ];
      *
-     * // using the "_.matches" callback shorthand
+     * // using the `_.matches` callback shorthand
      * _.pluck(_.reject(users, { 'age': 40, 'active': true }), 'user');
      * // => ['barney']
      *
-     * // using the "_.matchesProperty" callback shorthand
+     * // using the `_.matchesProperty` callback shorthand
      * _.pluck(_.reject(users, 'active', false), 'user');
      * // => ['fred']
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.pluck(_.reject(users, 'active'), 'user');
      * // => ['barney']
      */
@@ -6596,11 +7224,11 @@
      * @returns {number} Returns the size of `collection`.
      * @example
      *
-     * _.size([1, 2]);
-     * // => 2
-     *
-     * _.size({ 'one': 1, 'two': 2, 'three': 3 });
+     * _.size([1, 2, 3]);
      * // => 3
+     *
+     * _.size({ 'a': 1, 'b': 2 });
+     * // => 2
      *
      * _.size('pebbles');
      * // => 7
@@ -6616,14 +7244,14 @@
      * over the entire collection. The predicate is bound to `thisArg` and invoked
      * with three arguments; (value, index|key, collection).
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -6633,8 +7261,7 @@
      * @category Collection
      * @param {Array|Object|string} collection The collection to iterate over.
      * @param {Function|Object|string} [predicate=_.identity] The function invoked
-     *  per iteration. If a property name or object is provided it is used to
-     *  create a "_.property" or "_.matches" style callback respectively.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `predicate`.
      * @returns {boolean} Returns `true` if any element passes the predicate check,
      *  else `false`.
@@ -6644,19 +7271,19 @@
      * // => true
      *
      * var users = [
-     *   { 'user': 'barney', 'age': 36, 'active': false },
-     *   { 'user': 'fred',   'age': 40, 'active': true }
+     *   { 'user': 'barney', 'active': true },
+     *   { 'user': 'fred',   'active': false }
      * ];
      *
-     * // using the "_.matches" callback shorthand
-     * _.some(users, { 'age': 1, 'active': true });
+     * // using the `_.matches` callback shorthand
+     * _.some(users, { user': 'barney', 'active': false });
      * // => false
      *
-     * // using the "_.matchesProperty" callback shorthand
+     * // using the `_.matchesProperty` callback shorthand
      * _.some(users, 'active', false);
      * // => true
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.some(users, 'active');
      * // => true
      */
@@ -6675,14 +7302,14 @@
      * The `iteratee` is bound to `thisArg` and invoked with three arguments;
      * (value, index|key, collection).
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -6692,15 +7319,19 @@
      * @param {Array|Object|string} collection The collection to iterate over.
      * @param {Array|Function|Object|string} [iteratee=_.identity] The function
      *  invoked per iteration. If a property name or an object is provided it is
-     *  used to create a "_.property" or "_.matches" style callback respectively.
+     *  used to create a `_.property` or `_.matches` style callback respectively.
      * @param {*} [thisArg] The `this` binding of `iteratee`.
      * @returns {Array} Returns the new sorted array.
      * @example
      *
-     * _.sortBy([1, 2, 3], function(n) { return Math.sin(n); });
+     * _.sortBy([1, 2, 3], function(n) {
+     *   return Math.sin(n);
+     * });
      * // => [3, 1, 2]
      *
-     * _.sortBy([1, 2, 3], function(n) { return this.sin(n); }, Math);
+     * _.sortBy([1, 2, 3], function(n) {
+     *   return this.sin(n);
+     * }, Math);
      * // => [3, 1, 2]
      *
      * var users = [
@@ -6709,7 +7340,7 @@
      *   { 'user': 'barney' }
      * ];
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.pluck(_.sortBy(users, 'user'), 'user');
      * // => ['barney', 'fred', 'pebbles']
      */
@@ -6817,7 +7448,9 @@
      * @category Date
      * @example
      *
-     * _.defer(function(stamp) { console.log(_.now() - stamp); }, _.now());
+     * _.defer(function(stamp) {
+     *   console.log(_.now() - stamp);
+     * }, _.now());
      * // => logs the number of milliseconds it took for the deferred function to be invoked
      */
     var now = nativeNow || function() {
@@ -6993,7 +7626,9 @@
      *
      * var view = {
      *   'label': 'docs',
-     *   'onClick': function() { console.log('clicked ' + this.label); }
+     *   'onClick': function() {
+     *     console.log('clicked ' + this.label);
+     *   }
      * };
      *
      * _.bindAll(view);
@@ -7346,7 +7981,9 @@
      * @returns {number} Returns the timer id.
      * @example
      *
-     * _.defer(function(text) { console.log(text); }, 'deferred');
+     * _.defer(function(text) {
+     *   console.log(text);
+     * }, 'deferred');
      * // logs 'deferred' after one or more milliseconds
      */
     function defer(func) {
@@ -7366,7 +8003,9 @@
      * @returns {number} Returns the timer id.
      * @example
      *
-     * _.delay(function(text) { console.log(text); }, 1000, 'later');
+     * _.delay(function(text) {
+     *   console.log(text);
+     * }, 1000, 'later');
      * // => logs 'later' after one second
      */
     function delay(func, wait) {
@@ -7404,7 +8043,7 @@
       if (!length) {
         return function() { return arguments[0]; };
       }
-      if (!arrayEvery(funcs, isFunction)) {
+      if (!arrayEvery(funcs, baseIsFunction)) {
         throw new TypeError(FUNC_ERROR_TEXT);
       }
       return function() {
@@ -7449,7 +8088,7 @@
       if (fromIndex < 0) {
         return function() { return arguments[0]; };
       }
-      if (!arrayEvery(funcs, isFunction)) {
+      if (!arrayEvery(funcs, baseIsFunction)) {
         throw new TypeError(FUNC_ERROR_TEXT);
       }
       return function() {
@@ -7684,7 +8323,9 @@
      * // => ['a', 'b', 'c']
      *
      * var map = _.rearg(_.map, [1, 0]);
-     * map(function(n) { return n * 3; }, [1, 2, 3]);
+     * map(function(n) {
+     *   return n * 3;
+     * }, [1, 2, 3]);
      * // => [3, 6, 9]
      */
     function rearg(func) {
@@ -7717,11 +8358,9 @@
      *   Promise.resolve(36)
      * ]);
      *
-     * var add = function(x, y) {
+     * numbers.then(_.spread(function(x, y) {
      *   return x + y;
-     * };
-     *
-     * numbers.then(_.spread(add));
+     * }));
      * // => a Promise of 76
      */
     function spread(func) {
@@ -7765,8 +8404,9 @@
      * jQuery(window).on('scroll', _.throttle(updatePosition, 100));
      *
      * // invoke `renewToken` when the click event is fired, but not more than once every 5 minutes
-     * var throttled =  _.throttle(renewToken, 300000, { 'trailing': false })
-     * jQuery('.interactive').on('click', throttled);
+     * jQuery('.interactive').on('click', _.throttle(renewToken, 300000, {
+     *   'trailing': false
+     * }));
      *
      * // cancel a trailing throttled call
      * jQuery(window).on('popstate', throttled.cancel);
@@ -7856,22 +8496,26 @@
      * // => false
      *
      * // using a customizer callback
-     * var body = _.clone(document.body, function(value) {
-     *   return _.isElement(value) ? value.cloneNode(false) : undefined;
+     * var el = _.clone(document.body, function(value) {
+     *   if (_.isElement(value)) {
+     *     return value.cloneNode(false);
+     *   }
      * });
      *
-     * body === document.body
+     * el === document.body
      * // => false
-     * body.nodeName
+     * el.nodeName
      * // => BODY
-     * body.childNodes.length;
+     * el.childNodes.length;
      * // => 0
      */
     function clone(value, isDeep, customizer, thisArg) {
-      // Juggle arguments.
-      if (typeof isDeep != 'boolean' && isDeep != null) {
+      if (isDeep && typeof isDeep != 'boolean' && isIterateeCall(value, isDeep, customizer)) {
+        isDeep = false;
+      }
+      else if (typeof isDeep == 'function') {
         thisArg = customizer;
-        customizer = isIterateeCall(value, isDeep, thisArg) ? null : isDeep;
+        customizer = isDeep;
         isDeep = false;
       }
       customizer = typeof customizer == 'function' && bindCallback(customizer, thisArg, 1);
@@ -7911,14 +8555,16 @@
      *
      * // using a customizer callback
      * var el = _.cloneDeep(document.body, function(value) {
-     *   return _.isElement(value) ? value.cloneNode(true) : undefined;
+     *   if (_.isElement(value)) {
+     *     return value.cloneNode(true);
+     *   }
      * });
      *
-     * body === document.body
+     * el === document.body
      * // => false
-     * body.nodeName
+     * el.nodeName
      * // => BODY
-     * body.childNodes.length;
+     * el.childNodes.length;
      * // => 20
      */
     function cloneDeep(value, customizer, thisArg) {
@@ -7936,7 +8582,7 @@
      * @returns {boolean} Returns `true` if `value` is correctly classified, else `false`.
      * @example
      *
-     * (function() { return _.isArguments(arguments); })();
+     * _.isArguments(function() { return arguments; }());
      * // => true
      *
      * _.isArguments([1, 2, 3]);
@@ -7960,7 +8606,7 @@
      * _.isArray([1, 2, 3]);
      * // => true
      *
-     * (function() { return _.isArray(arguments); })();
+     * _.isArray(function() { return arguments; }());
      * // => false
      */
     var isArray = nativeIsArray || function(value) {
@@ -8110,7 +8756,9 @@
      * var other = ['hi', 'goodbye'];
      *
      * _.isEqual(array, other, function(value, other) {
-     *   return _.every([value, other], RegExp.prototype.test, /^h(?:i|ello)$/) || undefined;
+     *   if (_.every([value, other], RegExp.prototype.test, /^h(?:i|ello)$/)) {
+     *     return true;
+     *   }
      * });
      * // => true
      */
@@ -8193,20 +8841,12 @@
      * _.isFunction(/abc/);
      * // => false
      */
-    function isFunction(value) {
-      // Avoid a Chakra JIT bug in compatibility modes of IE 11.
-      // See https://github.com/jashkenas/underscore/issues/1621 for more details.
-      return typeof value == 'function' || false;
-    }
-    // Fallback for environments that return incorrect `typeof` operator results.
-    if (isFunction(/x/) || (Uint8Array && !isFunction(Uint8Array))) {
-      isFunction = function(value) {
-        // The use of `Object#toString` avoids issues with the `typeof` operator
-        // in older versions of Chrome and Safari which return 'function' for regexes
-        // and Safari 8 equivalents which return 'object' for typed array constructors.
-        return objToString.call(value) == funcTag;
-      };
-    }
+    var isFunction = !(baseIsFunction(/x/) || (Uint8Array && !baseIsFunction(Uint8Array))) ? baseIsFunction : function(value) {
+      // The use of `Object#toString` avoids issues with the `typeof` operator
+      // in older versions of Chrome and Safari which return 'function' for regexes
+      // and Safari 8 equivalents which return 'object' for typed array constructors.
+      return objToString.call(value) == funcTag;
+    };
 
     /**
      * Checks if `value` is the language type of `Object`.
@@ -8535,7 +9175,9 @@
      * @returns {Array} Returns the converted array.
      * @example
      *
-     * (function() { return _.toArray(arguments).slice(1); })(1, 2, 3);
+     * (function() {
+     *   return _.toArray(arguments).slice(1);
+     * }(1, 2, 3));
      * // => [2, 3]
      */
     function toArray(value) {
@@ -8632,7 +9274,9 @@
      *   Shape.call(this);
      * }
      *
-     * Circle.prototype = _.create(Shape.prototype, { 'constructor': Circle });
+     * Circle.prototype = _.create(Shape.prototype, {
+     *   'constructor': Circle
+     * });
      *
      * var circle = new Circle;
      * circle instanceof Circle;
@@ -8678,14 +9322,14 @@
      * This method is like `_.findIndex` except that it returns the key of the
      * first element `predicate` returns truthy for, instead of the element itself.
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -8694,8 +9338,7 @@
      * @category Object
      * @param {Object} object The object to search.
      * @param {Function|Object|string} [predicate=_.identity] The function invoked
-     *  per iteration. If a property name or object is provided it is used to
-     *  create a "_.property" or "_.matches" style callback respectively.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `predicate`.
      * @returns {string|undefined} Returns the key of the matched element, else `undefined`.
      * @example
@@ -8706,18 +9349,20 @@
      *   'pebbles': { 'age': 1,  'active': true }
      * };
      *
-     * _.findKey(users, function(chr) { return chr.age < 40; });
+     * _.findKey(users, function(chr) {
+     *   return chr.age < 40;
+     * });
      * // => 'barney' (iteration order is not guaranteed)
      *
-     * // using the "_.matches" callback shorthand
+     * // using the `_.matches` callback shorthand
      * _.findKey(users, { 'age': 1, 'active': true });
      * // => 'pebbles'
      *
-     * // using the "_.matchesProperty" callback shorthand
+     * // using the `_.matchesProperty` callback shorthand
      * _.findKey(users, 'active', false);
      * // => 'fred'
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.findKey(users, 'active');
      * // => 'barney'
      */
@@ -8730,14 +9375,14 @@
      * This method is like `_.findKey` except that it iterates over elements of
      * a collection in the opposite order.
      *
-     * If a property name is provided for `predicate` the created "_.property"
+     * If a property name is provided for `predicate` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `predicate` the created "_.matches" style
+     * If an object is provided for `predicate` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -8746,8 +9391,7 @@
      * @category Object
      * @param {Object} object The object to search.
      * @param {Function|Object|string} [predicate=_.identity] The function invoked
-     *  per iteration. If a property name or object is provided it is used to
-     *  create a "_.property" or "_.matches" style callback respectively.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `predicate`.
      * @returns {string|undefined} Returns the key of the matched element, else `undefined`.
      * @example
@@ -8758,18 +9402,20 @@
      *   'pebbles': { 'age': 1,  'active': true }
      * };
      *
-     * _.findLastKey(users, function(chr) { return chr.age < 40; });
+     * _.findLastKey(users, function(chr) {
+     *   return chr.age < 40;
+     * });
      * // => returns `pebbles` assuming `_.findKey` returns `barney`
      *
-     * // using the "_.matches" callback shorthand
+     * // using the `_.matches` callback shorthand
      * _.findLastKey(users, { 'age': 36, 'active': true });
      * // => 'barney'
      *
-     * // using the "_.matchesProperty" callback shorthand
+     * // using the `_.matchesProperty` callback shorthand
      * _.findLastKey(users, 'active', false);
      * // => 'fred'
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.findLastKey(users, 'active');
      * // => 'pebbles'
      */
@@ -8857,10 +9503,17 @@
      * @returns {Object} Returns `object`.
      * @example
      *
-     * _.forOwn({ '0': 'zero', '1': 'one', 'length': 2 }, function(n, key) {
+     * function Foo() {
+     *   this.a = 1;
+     *   this.b = 2;
+     * }
+     *
+     * Foo.prototype.c = 3;
+     *
+     * _.forOwn(new Foo, function(value, key) {
      *   console.log(key);
      * });
-     * // => logs '0', '1', and 'length' (iteration order is not guaranteed)
+     * // => logs 'a' and 'b' (iteration order is not guaranteed)
      */
     function forOwn(object, iteratee, thisArg) {
       if (typeof iteratee != 'function' || typeof thisArg != 'undefined') {
@@ -8882,10 +9535,17 @@
      * @returns {Object} Returns `object`.
      * @example
      *
-     * _.forOwnRight({ '0': 'zero', '1': 'one', 'length': 2 }, function(n, key) {
+     * function Foo() {
+     *   this.a = 1;
+     *   this.b = 2;
+     * }
+     *
+     * Foo.prototype.c = 3;
+     *
+     * _.forOwnRight(new Foo, function(value, key) {
      *   console.log(key);
      * });
-     * // => logs 'length', '1', and '0' assuming `_.forOwn` logs '0', '1', and 'length'
+     * // => logs 'b' and 'a' assuming `_.forOwn` logs 'a' and 'b'
      */
     function forOwnRight(object, iteratee, thisArg) {
       iteratee = bindCallback(iteratee, thisArg, 3);
@@ -8905,7 +9565,7 @@
      * @example
      *
      * _.functions(_);
-     * // => ['all', 'any', 'bind', ...]
+     * // => ['after', 'ary', 'assign', ...]
      */
     function functions(object) {
       return baseFunctions(object, keysIn(object));
@@ -8923,7 +9583,9 @@
      * @returns {boolean} Returns `true` if `key` is a direct property, else `false`.
      * @example
      *
-     * _.has({ 'a': 1, 'b': 2, 'c': 3 }, 'b');
+     * var object = { 'a': 1, 'b': 2, 'c': 3 };
+     *
+     * _.has(object, 'b');
      * // => true
      */
     function has(object, key) {
@@ -8944,16 +9606,14 @@
      * @returns {Object} Returns the new inverted object.
      * @example
      *
-     * _.invert({ 'first': 'fred', 'second': 'barney' });
-     * // => { 'fred': 'first', 'barney': 'second' }
+     * var object = { 'a': 1, 'b': 2, 'c': 1 };
      *
-     * // without `multiValue`
-     * _.invert({ 'first': 'fred', 'second': 'barney', 'third': 'fred' });
-     * // => { 'fred': 'third', 'barney': 'second' }
+     * _.invert(object);
+     * // => { '1': 'c', '2': 'b' }
      *
      * // with `multiValue`
-     * _.invert({ 'first': 'fred', 'second': 'barney', 'third': 'fred' }, true);
-     * // => { 'fred': ['first', 'third'], 'barney': ['second'] }
+     * _.invert(object, true);
+     * // => { '1': ['a', 'c'], '2': ['b'] }
      */
     function invert(object, multiValue, guard) {
       if (guard && isIterateeCall(object, multiValue, guard)) {
@@ -9078,14 +9738,14 @@
      * iteratee function is bound to `thisArg` and invoked with three arguments;
      * (value, key, object).
      *
-     * If a property name is provided for `iteratee` the created "_.property"
+     * If a property name is provided for `iteratee` the created `_.property`
      * style callback returns the property value of the given element.
      *
-     * If value is also provided for `thisArg` the created "_.matchesProperty"
+     * If a value is also provided for `thisArg` the created `_.matchesProperty`
      * style callback returns `true` for elements that have a matching property
      * value, else `false`.
      *
-     * If an object is provided for `iteratee` the created "_.matches" style
+     * If an object is provided for `iteratee` the created `_.matches` style
      * callback returns `true` for elements that have the properties of the given
      * object, else `false`.
      *
@@ -9094,21 +9754,22 @@
      * @category Object
      * @param {Object} object The object to iterate over.
      * @param {Function|Object|string} [iteratee=_.identity] The function invoked
-     *  per iteration. If a property name or object is provided it is used to
-     *  create a "_.property" or "_.matches" style callback respectively.
+     *  per iteration.
      * @param {*} [thisArg] The `this` binding of `iteratee`.
      * @returns {Object} Returns the new mapped object.
      * @example
      *
-     * _.mapValues({ 'a': 1, 'b': 2, 'c': 3} , function(n) { return n * 3; });
-     * // => { 'a': 3, 'b': 6, 'c': 9 }
+     * _.mapValues({ 'a': 1, 'b': 2 }, function(n) {
+     *   return n * 3;
+     * });
+     * // => { 'a': 3, 'b': 6 }
      *
      * var users = {
      *   'fred':    { 'user': 'fred',    'age': 40 },
      *   'pebbles': { 'user': 'pebbles', 'age': 1 }
      * };
      *
-     * // using the "_.property" callback shorthand
+     * // using the `_.property` callback shorthand
      * _.mapValues(users, 'age');
      * // => { 'fred': 40, 'pebbles': 1 } (iteration order is not guaranteed)
      */
@@ -9164,7 +9825,9 @@
      * };
      *
      * _.merge(object, other, function(a, b) {
-     *   return _.isArray(a) ? a.concat(b) : undefined;
+     *   if (_.isArray(a)) {
+     *     return a.concat(b);
+     *   }
      * });
      * // => { 'fruits': ['apple', 'banana'], 'vegetables': ['beet', 'carrot'] }
      */
@@ -9330,18 +9993,16 @@
      * @returns {*} Returns the accumulated value.
      * @example
      *
-     * var squares = _.transform([1, 2, 3, 4, 5, 6], function(result, n) {
-     *   n *= n;
-     *   if (n % 2) {
-     *     return result.push(n) < 3;
-     *   }
+     * _.transform([2, 3, 4], function(result, n) {
+     *   result.push(n *= n);
+     *   return n % 2 == 0;
      * });
-     * // => [1, 9, 25]
+     * // => [4, 9]
      *
-     * var mapped = _.transform({ 'a': 1, 'b': 2, 'c': 3 }, function(result, n, key) {
+     * _.transform({ 'a': 1, 'b': 2 }, function(result, n, key) {
      *   result[key] = n * 3;
      * });
-     * // => { 'a': 3, 'b': 6, 'c': 9 }
+     * // => { 'a': 3, 'b': 6 }
      */
     function transform(object, iteratee, accumulator, thisArg) {
       var isArr = isArray(object) || isTypedArray(object);
@@ -9422,6 +10083,48 @@
     }
 
     /*------------------------------------------------------------------------*/
+
+    /**
+     * Checks if `n` is between `start` and up to but not including, `end`. If
+     * `end` is not specified it defaults to `start` with `start` becoming `0`.
+     *
+     * @static
+     * @memberOf _
+     * @category Number
+     * @param {number} n The number to check.
+     * @param {number} [start=0] The start of the range.
+     * @param {number} end The end of the range.
+     * @returns {boolean} Returns `true` if `n` is in the range, else `false`.
+     * @example
+     *
+     * _.inRange(3, 2, 4);
+     * // => true
+     *
+     * _.inRange(4, 8);
+     * // => true
+     *
+     * _.inRange(4, 2);
+     * // => false
+     *
+     * _.inRange(2, 2);
+     * // => false
+     *
+     * _.inRange(1.2, 2);
+     * // => true
+     *
+     * _.inRange(5.2, 4);
+     * // => false
+     */
+    function inRange(value, start, end) {
+      start = +start || 0;
+      if (typeof end === 'undefined') {
+        end = start;
+        start = 0;
+      } else {
+        end = +end || 0;
+      }
+      return value >= start && value < end;
+    }
 
     /**
      * Produces a random number between `min` and `max` (inclusive). If only one
@@ -9642,7 +10345,7 @@
     }
 
     /**
-     * Converts `string` to kebab case (a.k.a. spinal case).
+     * Converts `string` to kebab case.
      * See [Wikipedia](https://en.wikipedia.org/wiki/Letter_case#Special_case_styles) for
      * more details.
      *
@@ -10241,13 +10944,21 @@
      * _.trunc('hi-diddly-ho there, neighborino', 24);
      * // => 'hi-diddly-ho there, n...'
      *
-     * _.trunc('hi-diddly-ho there, neighborino', { 'length': 24, 'separator': ' ' });
+     * _.trunc('hi-diddly-ho there, neighborino', {
+     *   'length': 24,
+     *   'separator': ' '
+     * });
      * // => 'hi-diddly-ho there,...'
      *
-     * _.trunc('hi-diddly-ho there, neighborino', { 'length': 24, 'separator': /,? +/ });
+     * _.trunc('hi-diddly-ho there, neighborino', {
+     *   'length': 24,
+     *   'separator': /,? +/
+     * });
      * //=> 'hi-diddly-ho there...'
      *
-     * _.trunc('hi-diddly-ho there, neighborino', { 'omission': ' [...]' });
+     * _.trunc('hi-diddly-ho there, neighborino', {
+     *   'omission': ' [...]'
+     * });
      * // => 'hi-diddly-ho there, neig [...]'
      */
     function trunc(string, options, guard) {
@@ -10375,9 +11086,16 @@
      *   elements = [];
      * }
      */
-    function attempt(func) {
+    function attempt() {
+      var length = arguments.length,
+          func = arguments[0];
+
       try {
-        return func.apply(undefined, baseSlice(arguments, 1));
+        var args = Array(length ? length - 1 : 0);
+        while (--length > 0) {
+          args[length - 1] = arguments[length];
+        }
+        return func.apply(undefined, args);
       } catch(e) {
         return isError(e) ? e : new Error(e);
       }
@@ -10412,7 +11130,9 @@
      *     return callback(func, thisArg);
      *   }
      *   return function(object) {
-     *     return match[2] == 'gt' ? object[match[1]] > match[3] : object[match[1]] < match[3];
+     *     return match[2] == 'gt'
+     *       ? object[match[1]] > match[3]
+     *       : object[match[1]] < match[3];
      *   };
      * });
      *
@@ -10440,6 +11160,7 @@
      *
      * var object = { 'user': 'fred' };
      * var getter = _.constant(object);
+     *
      * getter() === object;
      * // => true
      */
@@ -10460,6 +11181,7 @@
      * @example
      *
      * var object = { 'user': 'fred' };
+     *
      * _.identity(object) === object;
      * // => true
      */
@@ -10513,14 +11235,12 @@
      * @example
      *
      * var users = [
-     *   { 'user': 'barney',  'age': 36 },
-     *   { 'user': 'fred',    'age': 40 },
-     *   { 'user': 'pebbles', 'age': 1 }
+     *   { 'user': 'barney' },
+     *   { 'user': 'fred' },
+     *   { 'user': 'pebbles' }
      * ];
      *
-     * var matchFred = _.matchesProperty('user', 'fred');
-     *
-     * _.find(users, matchFred);
+     * _.find(users, _.matchesProperty('user', 'fred'));
      * // => { 'user': 'fred', 'age': 40 }
      */
     function matchesProperty(key, value) {
@@ -10632,7 +11352,8 @@
     }
 
     /**
-     * A no-operation function.
+     * A no-operation function which returns `undefined` regardless of the
+     * arguments it receives.
      *
      * @static
      * @memberOf _
@@ -10640,6 +11361,7 @@
      * @example
      *
      * var object = { 'user': 'fred' };
+     *
      * _.noop(object) === undefined;
      * // => true
      */
@@ -10685,11 +11407,11 @@
      * @returns {Function} Returns the new function.
      * @example
      *
-     * var object = { 'user': 'fred', 'age': 40, 'active': true };
-     * _.map(['active', 'user'], _.propertyOf(object));
-     * // => [true, 'fred']
-     *
      * var object = { 'a': 3, 'b': 1, 'c': 2 };
+     *
+     * _.map(['a', 'c'], _.propertyOf(object));
+     * // => [3, 2]
+     *
      * _.sortBy(['a', 'b', 'c'], _.propertyOf(object));
      * // => ['b', 'c', 'a']
      */
@@ -10701,8 +11423,9 @@
 
     /**
      * Creates an array of numbers (positive and/or negative) progressing from
-     * `start` up to, but not including, `end`. If `start` is less than `end` a
-     * zero-length range is created unless a negative `step` is specified.
+     * `start` up to, but not including, `end`. If `end` is not specified it
+     * defaults to `start` with `start` becoming `0`. If `start` is less than
+     * `end` a zero-length range is created unless a negative `step` is specified.
      *
      * @static
      * @memberOf _
@@ -10774,10 +11497,14 @@
      * var diceRolls = _.times(3, _.partial(_.random, 1, 6, false));
      * // => [3, 6, 4]
      *
-     * _.times(3, function(n) { mage.castSpell(n); });
+     * _.times(3, function(n) {
+     *   mage.castSpell(n);
+     * });
      * // => invokes `mage.castSpell(n)` three times with `n` of `0`, `1`, and `2` respectively
      *
-     * _.times(3, function(n) { this.cast(n); }, mage);
+     * _.times(3, function(n) {
+     *   this.cast(n);
+     * }, mage);
      * // => also invokes `mage.castSpell(n)` three times
      */
     function times(n, iteratee, thisArg) {
@@ -10825,11 +11552,13 @@
 
     /*------------------------------------------------------------------------*/
 
-    // Ensure `new LodashWrapper` is an instance of `lodash`.
-    LodashWrapper.prototype = baseCreate(lodash.prototype);
+    // Ensure wrappers are instances of `baseLodash`.
+    lodash.prototype = baseLodash.prototype;
 
-    // Ensure `new LazyWraper` is an instance of `LodashWrapper`
-    LazyWrapper.prototype = baseCreate(LodashWrapper.prototype);
+    LodashWrapper.prototype = baseCreate(baseLodash.prototype);
+    LodashWrapper.prototype.constructor = LodashWrapper;
+
+    LazyWrapper.prototype = baseCreate(baseLodash.prototype);
     LazyWrapper.prototype.constructor = LazyWrapper;
 
     // Add functions to the `Map` cache.
@@ -10987,6 +11716,7 @@
     lodash.identity = identity;
     lodash.includes = includes;
     lodash.indexOf = indexOf;
+    lodash.inRange = inRange;
     lodash.isArguments = isArguments;
     lodash.isArray = isArray;
     lodash.isBoolean = isBoolean;
@@ -11169,18 +11899,18 @@
       return this.filter(identity);
     };
 
-    LazyWrapper.prototype.dropWhile = function(iteratee, thisArg) {
+    LazyWrapper.prototype.dropWhile = function(predicate, thisArg) {
       var done;
-      iteratee = getCallback(iteratee, thisArg, 3);
+      predicate = getCallback(predicate, thisArg, 3);
       return this.filter(function(value, index, array) {
-        return done || (done = !iteratee(value, index, array));
+        return done || (done = !predicate(value, index, array));
       });
     };
 
-    LazyWrapper.prototype.reject = function(iteratee, thisArg) {
-      iteratee = getCallback(iteratee, thisArg, 3);
+    LazyWrapper.prototype.reject = function(predicate, thisArg) {
+      predicate = getCallback(predicate, thisArg, 3);
       return this.filter(function(value, index, array) {
-        return !iteratee(value, index, array);
+        return !predicate(value, index, array);
       });
     };
 
@@ -11258,7 +11988,7 @@
     LazyWrapper.prototype.reverse = lazyReverse;
     LazyWrapper.prototype.value = lazyValue;
 
-    // Add chaining functions to the lodash wrapper.
+    // Add chaining functions to the `lodash` wrapper.
     lodash.prototype.chain = wrapperChain;
     lodash.prototype.commit = wrapperCommit;
     lodash.prototype.plant = wrapperPlant;
@@ -11266,7 +11996,7 @@
     lodash.prototype.toString = wrapperToString;
     lodash.prototype.run = lodash.prototype.toJSON = lodash.prototype.valueOf = lodash.prototype.value = wrapperValue;
 
-    // Add function aliases to the lodash wrapper.
+    // Add function aliases to the `lodash` wrapper.
     lodash.prototype.collect = lodash.prototype.map;
     lodash.prototype.head = lodash.prototype.first;
     lodash.prototype.select = lodash.prototype.filter;
@@ -11312,587 +12042,1077 @@
 }.call(this));
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],3:[function(require,module,exports){
-'use strict';
+},{}],7:[function(require,module,exports){
+"use strict";
 
-// adds 'dfg' section to every scoped basic block
+var Spec = require('./spec.js')["default"];
+var objectAssign = require('object-assign');
 
-// dfg: {
-//     init: ['a'], // initial parameter stack state
-//     edge: { // all data dependencies in this block
-//         b: ['a'],
-//         c: ['b', 'a']
-//     },
-//     done: ['c'] // final parameter stack state
-// }
+var version = require('../package.json').version;
 
-var _ = require('lodash'),
-    trav = require('shift-traverse');
 
-function dfg (scope) {
-    if (scope.type && scope.type.name === 'function') {
+// Loading uncached estraverse for changing estraverse.Syntax.
+var estraverse = require("estraverse").cloneEnvironment();
 
-        scope.dfg = {init: [], from: {}, to: {}};
+// Adjust estraverse members.
 
-        scope.astNode.parameters.some(function (e) {
-            scope.dfg.init.push(e.name);
-        });
+Object.keys(estraverse.Syntax).forEach(function (key) {
+  delete estraverse.Syntax[key];
+  delete estraverse.VisitorKeys[key];
+});
 
-        trav.traverse(scope.astNode, {
-            leave: function (node) {
-                var depend;
+objectAssign(estraverse.Syntax, Object.keys(Spec).reduce(function (result, key) {
+  result[key] = key;
+  return result;
+}, {}));
 
-                switch(node.type) {
+objectAssign(estraverse.VisitorKeys, Spec);
 
-                case trav.Syntax.IdentifierExpression:
-                    node.depend = [node.identifier.name];
-                    break;
+estraverse.version = version;
+module.exports = estraverse;
 
-                case trav.Syntax.LiteralNumericExpression:
-                    node.depend = [];
-                    break;
+/* vim: set sw=4 ts=4 et tw=80 : */
 
-                case trav.Syntax.BinaryExpression:
-                    node.depend = [node.name];
-                    depend = _.union(node.left.depend, node.right.depend);
-                    scope.dfg.from[node.name] = depend;
-                    if (depend) {
-                        depend.forEach(function (e) {
-                            scope.dfg.to[e] = scope.dfg.to[e] || [];
-                            scope.dfg.to[e].push(node.name);
-                        });
-                    }
-                    break;
+},{"../package.json":11,"./spec.js":8,"estraverse":9,"object-assign":10}],8:[function(require,module,exports){
+"use strict";
 
-                case trav.Syntax.AssignmentExpression:
-                    depend = node.expression.depend;
-                    scope.dfg.from[node.binding.identifier.name] = depend;
-                    if (depend) {
-                        depend.forEach(function (e) {
-                            scope.dfg.to[e] = scope.dfg.to[e] || [];
-                            scope.dfg.to[e].push(node.binding.identifier.name);
-                        });
-                    }
-                    // scope.dfg.edge.a = [];
-                    break;
+/*
+  Copyright (C) 2014 Yusuke Suzuki <utatane.tea@gmail.com>
 
-                case trav.Syntax.ReturnStatement:
-                    depend = node.expression.depend;
-                    scope.dfg.from[node.name] = depend;
-                    scope.dfg.to[depend] = [node.name];
-                    break;
-                }
-            }
-        });
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions are met:
 
-        // console.log(scope.dfg);
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+  ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+  DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+  (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+  THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
+var SPEC = {
+  ArrayExpression: ["elements"],
+  AssignmentExpression: ["binding", "expression"],
+  BinaryExpression: ["left", "right"],
+  Block: ["statements"],
+  BlockStatement: ["block"],
+  BreakStatement: ["label"],
+  CallExpression: ["callee", "arguments"],
+  CatchClause: ["binding", "body"],
+  ComputedMemberExpression: ["object", "expression"],
+  ConditionalExpression: ["test", "consequent", "alternate"],
+  ContinueStatement: ["label"],
+  DataProperty: ["name", "expression"],
+  DebuggerStatement: [],
+  DoWhileStatement: ["body", "test"],
+  EmptyStatement: [],
+  ExpressionStatement: ["expression"],
+  ForInStatement: ["left", "right", "body"],
+  ForStatement: ["init", "test", "update", "body"],
+  FunctionBody: ["directives", "statements"],
+  FunctionDeclaration: ["name", "parameters", "body"],
+  FunctionExpression: ["name", "parameters", "body"],
+  Getter: ["name", "body"],
+  Identifier: [],
+  IdentifierExpression: ["identifier"],
+  IfStatement: ["test", "consequent", "alternate"],
+  LabeledStatement: ["label", "body"],
+  LiteralBooleanExpression: [],
+  LiteralNullExpression: [],
+  LiteralNumericExpression: [],
+  LiteralRegExpExpression: [],
+  LiteralStringExpression: [],
+  NewExpression: ["callee", "arguments"],
+  ObjectExpression: ["properties"],
+  PostfixExpression: ["operand"],
+  PrefixExpression: ["operand"],
+  PropertyName: [],
+  ReturnStatement: ["expression"],
+  Script: ["body"],
+  Setter: ["name", "parameter", "body"],
+  StaticMemberExpression: ["object", "property"],
+  SwitchCase: ["test", "consequent"],
+  SwitchDefault: ["consequent"],
+  SwitchStatement: ["discriminant", "cases"],
+  SwitchStatementWithDefault: ["discriminant", "preDefaultCases", "defaultCase", "postDefaultCases"],
+  ThisExpression: [],
+  ThrowStatement: ["expression"],
+  TryCatchStatement: ["body", "catchClause"],
+  TryFinallyStatement: ["body", "catchClause", "finalizer"],
+  UnknownDirective: [],
+  UseStrictDirective: [],
+  VariableDeclaration: ["declarators"],
+  VariableDeclarationStatement: ["declaration"],
+  VariableDeclarator: ["binding", "init"],
+  WhileStatement: ["test", "body"],
+  WithStatement: ["object", "body"] };
+
+exports["default"] = SPEC;
+
+},{}],9:[function(require,module,exports){
+/*
+  Copyright (C) 2012-2013 Yusuke Suzuki <utatane.tea@gmail.com>
+  Copyright (C) 2012 Ariya Hidayat <ariya.hidayat@gmail.com>
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions are met:
+
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+  ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+  DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+  (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+  THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+/*jslint vars:false, bitwise:true*/
+/*jshint indent:4*/
+/*global exports:true, define:true*/
+(function (root, factory) {
+    'use strict';
+
+    // Universal Module Definition (UMD) to support AMD, CommonJS/Node.js,
+    // and plain browser loading,
+    if (typeof define === 'function' && define.amd) {
+        define(['exports'], factory);
+    } else if (typeof exports !== 'undefined') {
+        factory(exports);
+    } else {
+        factory((root.estraverse = {}));
     }
-    scope.children.some(dfg);
-}
+}(this, function clone(exports) {
+    'use strict';
 
-module.exports = dfg;
+    var Syntax,
+        isArray,
+        VisitorOption,
+        VisitorKeys,
+        objectCreate,
+        objectKeys,
+        BREAK,
+        SKIP,
+        REMOVE;
 
-},{"lodash":2,"shift-traverse":94}],4:[function(require,module,exports){
-'use strict';
+    function ignoreJSHintError() { }
 
-var _ = require('lodash'),
-    trav = require('shift-traverse');
-
-function forthOperators (operator) {
-    var table = {
-        '&&': 'and',
-        '||': 'or',
-        '<<': 'lshift',
-        '>>': 'rshift',
-        '~': 'invert',
-        // Forth
-        '<': '<',
-        '>': '>',
-        '<=': '> invert',
-        '>=': '< invert',
-        '==': '=',
-        '!==': '<>'
-    };
-    return table[operator] || operator;
-}
-
-// peephole optimizer running over the Forth string
-function peephole (newString) {
-
-    // single optimization pass
-    function step (str) {
-        var f, op2, op2c;
-
-        op2 = '(and|or|xor|lshift|rshift|\\+|\\-|\\*|/|=|<|>|<=|>=)';
-        op2c = '(and|or|xor|\\+|\\*|=)'; // commutative
-
-        f = str.match('(.*)1 pick ' + op2 + ' nip(.*)');
-        if (f) { return f[1] + 'swap ' + f[2] + f[3]; }
-
-        f = str.match('(.*)1 pick swap ' + op2 + ' nip(.*)');
-        if (f) { return f[1] + f[2] + f[3]; }
-
-        f = str.match('(.*)0 pick 2 pick ' + op2 + '(.*)');
-        if (f) { return f[1] + '1 pick 1 pick swap ' + f[2] + f[3]; }
-
-        f = str.match('(.*)0 pick 2 pick swap (' + op2 + ')(.*)');
-        if (f) { return f[1] + '1 pick 1 pick ' + f[2] + f[3]; }
-
-        f = str.match('(.*)0 pick (\\d+) ' + op2 + ' nip(.*)');
-        if (f) { return f[1] + f[2] + ' ' + f[3] + f[4]; }
-
-        f = str.match('(.*)0 pick (\\w+) @ ' + op2 + ' nip(.*)');
-        if (f) { return f[1] + f[2] + ' @ ' + f[3] + f[4]; }
-
-        f = str.match('(.*)swap ' + op2c + '(.*)');
-        if (f) { return f[1] + f[2] + f[3]; }
-
-        return false; // string can't be optimized
-    }
-
-    var oldString;
-
-    do {
-        oldString = newString;
-        newString = step(oldString);
-    } while (newString)
-    return oldString;
-}
-
-function insertForth (scope, dfg, options) {
-    var astNode, stack, stream;
-
-    function stackStatus (init) {
-        var arr, ret;
-
-        arr = init.split('\n');
-        if (
-            options &&
-            options.comments &&
-            options.comments === true
-        ) {
-            ret = '';
-            stack.forEach(function (e) {
-                ret += ' ' + e[0] + ':' + e[1].join(',');
-            });
-
-            return _.repeat(' ', 22 - arr[arr.length - 1].length) + ' (' + ret + ' )\n';
-        } else {
-            return ' ';
-        }
-    }
-
-    function cleanStackElement () {
-        var res, e, tmp; //, i, j;
-        res = '';
-
-        if (stack.length === 0) {
-            // empty stack case
-            return res;
-        }
-
-        // all cleaning oprations on the top of stack
-        e = stack[stack.length - 1][1];
-        if (e.length === 0) {
-            // droping useless element
-            stack.pop();
-            res = 'drop';
-            res += stackStatus(res);
-            return res;
-        }
-
-        if (e.length === 1) {
-            // last destination
-            if (
-                !scope.variableList.some(function (ee) {
-                    return ee.name === e[0];
-                }) && (e[0].search(/\$/) === -1)
-            ) {
-                stack.pop();
-                res = e[0] + ' !';
-                res += stackStatus(res);
-                return res;
-            }
-        }
-
-        // more then one destination
-        // for (i = 0; i < e.length; i++) {
-        //     for (j = 0; j < scope.variableList.length; j++) {
-        //         if (scope.variableList[j].name === e[i]) {
-        //             if (e.length === 1) {
-        //                 res = e[i] + ' !';
-        //                 stack.pop();
-        //             } else {
-        //                 res = 'dup ' + e[i] + ' !';
-        //                 e.splice(i, 1);
-        //             }
-        //             res += stackStatus(res);
-        //             return res;
-        //         }
-        //     }
-        // }
-
-        if (stack.length === 1) {
-            return res;
-        }
-
-        if (stack[stack.length - 2][1].length === 0) {
-            tmp = stack.pop();
-            stack.pop();
-            stack.push(tmp);
-            res = 'nip';
-            return res;
-        }
-        return res;
+    isArray = Array.isArray;
+    if (!isArray) {
+        isArray = function isArray(array) {
+            return Object.prototype.toString.call(array) === '[object Array]';
+        };
     }
 
-    function cleanStack (init) {
-        var res, temp;
-        res = init || '';
-        do {
-            temp = cleanStackElement();
-            if (temp !== '') {
-                if (res === '') {
-                    res = temp;
+    function deepCopy(obj) {
+        var ret = {}, key, val;
+        for (key in obj) {
+            if (obj.hasOwnProperty(key)) {
+                val = obj[key];
+                if (typeof val === 'object' && val !== null) {
+                    ret[key] = deepCopy(val);
                 } else {
-                    res += ' ' + temp;
+                    ret[key] = val;
                 }
             }
-        } while (temp !== '')
-        return res;
-    }
-
-    function varType (node) {
-        switch (node.type) {
-
-        case trav.Syntax.BinaryExpression:
-            return 0; // local
-
-        case trav.Syntax.IdentifierExpression:
-            if (scope.variableList.some(function (e) {
-                return e.name === node.name;
-            })) {
-                return 0; // local
-            }
-            return 1; // global
-
-        case trav.Syntax.LiteralNumericExpression:
-            return 2; // literal
         }
-        return 1; // global
+        return ret;
     }
 
-    function pick (target, self) {
-        var depth;
-        stack.some(function (e, i, arr) {
-            if (e[0] === target.name) {
-                e[1].some(function (ee, ii) {
-                    if (ee === self.name) {
-                        e[1].splice(ii, 1);
-                        return true;
+    function shallowCopy(obj) {
+        var ret = {}, key;
+        for (key in obj) {
+            if (obj.hasOwnProperty(key)) {
+                ret[key] = obj[key];
+            }
+        }
+        return ret;
+    }
+    ignoreJSHintError(shallowCopy);
+
+    // based on LLVM libc++ upper_bound / lower_bound
+    // MIT License
+
+    function upperBound(array, func) {
+        var diff, len, i, current;
+
+        len = array.length;
+        i = 0;
+
+        while (len) {
+            diff = len >>> 1;
+            current = i + diff;
+            if (func(array[current])) {
+                len = diff;
+            } else {
+                i = current + 1;
+                len -= diff + 1;
+            }
+        }
+        return i;
+    }
+
+    function lowerBound(array, func) {
+        var diff, len, i, current;
+
+        len = array.length;
+        i = 0;
+
+        while (len) {
+            diff = len >>> 1;
+            current = i + diff;
+            if (func(array[current])) {
+                i = current + 1;
+                len -= diff + 1;
+            } else {
+                len = diff;
+            }
+        }
+        return i;
+    }
+    ignoreJSHintError(lowerBound);
+
+    objectCreate = Object.create || (function () {
+        function F() { }
+
+        return function (o) {
+            F.prototype = o;
+            return new F();
+        };
+    })();
+
+    objectKeys = Object.keys || function (o) {
+        var keys = [], key;
+        for (key in o) {
+            keys.push(key);
+        }
+        return keys;
+    };
+
+    function extend(to, from) {
+        objectKeys(from).forEach(function (key) {
+            to[key] = from[key];
+        });
+        return to;
+    }
+
+    Syntax = {
+        AssignmentExpression: 'AssignmentExpression',
+        ArrayExpression: 'ArrayExpression',
+        ArrayPattern: 'ArrayPattern',
+        ArrowFunctionExpression: 'ArrowFunctionExpression',
+        AwaitExpression: 'AwaitExpression', // CAUTION: It's deferred to ES7.
+        BlockStatement: 'BlockStatement',
+        BinaryExpression: 'BinaryExpression',
+        BreakStatement: 'BreakStatement',
+        CallExpression: 'CallExpression',
+        CatchClause: 'CatchClause',
+        ClassBody: 'ClassBody',
+        ClassDeclaration: 'ClassDeclaration',
+        ClassExpression: 'ClassExpression',
+        ComprehensionBlock: 'ComprehensionBlock',  // CAUTION: It's deferred to ES7.
+        ComprehensionExpression: 'ComprehensionExpression',  // CAUTION: It's deferred to ES7.
+        ConditionalExpression: 'ConditionalExpression',
+        ContinueStatement: 'ContinueStatement',
+        DebuggerStatement: 'DebuggerStatement',
+        DirectiveStatement: 'DirectiveStatement',
+        DoWhileStatement: 'DoWhileStatement',
+        EmptyStatement: 'EmptyStatement',
+        ExportBatchSpecifier: 'ExportBatchSpecifier',
+        ExportDeclaration: 'ExportDeclaration',
+        ExportSpecifier: 'ExportSpecifier',
+        ExpressionStatement: 'ExpressionStatement',
+        ForStatement: 'ForStatement',
+        ForInStatement: 'ForInStatement',
+        ForOfStatement: 'ForOfStatement',
+        FunctionDeclaration: 'FunctionDeclaration',
+        FunctionExpression: 'FunctionExpression',
+        GeneratorExpression: 'GeneratorExpression',  // CAUTION: It's deferred to ES7.
+        Identifier: 'Identifier',
+        IfStatement: 'IfStatement',
+        ImportDeclaration: 'ImportDeclaration',
+        ImportDefaultSpecifier: 'ImportDefaultSpecifier',
+        ImportNamespaceSpecifier: 'ImportNamespaceSpecifier',
+        ImportSpecifier: 'ImportSpecifier',
+        Literal: 'Literal',
+        LabeledStatement: 'LabeledStatement',
+        LogicalExpression: 'LogicalExpression',
+        MemberExpression: 'MemberExpression',
+        MethodDefinition: 'MethodDefinition',
+        ModuleSpecifier: 'ModuleSpecifier',
+        NewExpression: 'NewExpression',
+        ObjectExpression: 'ObjectExpression',
+        ObjectPattern: 'ObjectPattern',
+        Program: 'Program',
+        Property: 'Property',
+        ReturnStatement: 'ReturnStatement',
+        SequenceExpression: 'SequenceExpression',
+        SpreadElement: 'SpreadElement',
+        SwitchStatement: 'SwitchStatement',
+        SwitchCase: 'SwitchCase',
+        TaggedTemplateExpression: 'TaggedTemplateExpression',
+        TemplateElement: 'TemplateElement',
+        TemplateLiteral: 'TemplateLiteral',
+        ThisExpression: 'ThisExpression',
+        ThrowStatement: 'ThrowStatement',
+        TryStatement: 'TryStatement',
+        UnaryExpression: 'UnaryExpression',
+        UpdateExpression: 'UpdateExpression',
+        VariableDeclaration: 'VariableDeclaration',
+        VariableDeclarator: 'VariableDeclarator',
+        WhileStatement: 'WhileStatement',
+        WithStatement: 'WithStatement',
+        YieldExpression: 'YieldExpression'
+    };
+
+    VisitorKeys = {
+        AssignmentExpression: ['left', 'right'],
+        ArrayExpression: ['elements'],
+        ArrayPattern: ['elements'],
+        ArrowFunctionExpression: ['params', 'defaults', 'rest', 'body'],
+        AwaitExpression: ['argument'], // CAUTION: It's deferred to ES7.
+        BlockStatement: ['body'],
+        BinaryExpression: ['left', 'right'],
+        BreakStatement: ['label'],
+        CallExpression: ['callee', 'arguments'],
+        CatchClause: ['param', 'body'],
+        ClassBody: ['body'],
+        ClassDeclaration: ['id', 'body', 'superClass'],
+        ClassExpression: ['id', 'body', 'superClass'],
+        ComprehensionBlock: ['left', 'right'],  // CAUTION: It's deferred to ES7.
+        ComprehensionExpression: ['blocks', 'filter', 'body'],  // CAUTION: It's deferred to ES7.
+        ConditionalExpression: ['test', 'consequent', 'alternate'],
+        ContinueStatement: ['label'],
+        DebuggerStatement: [],
+        DirectiveStatement: [],
+        DoWhileStatement: ['body', 'test'],
+        EmptyStatement: [],
+        ExportBatchSpecifier: [],
+        ExportDeclaration: ['declaration', 'specifiers', 'source'],
+        ExportSpecifier: ['id', 'name'],
+        ExpressionStatement: ['expression'],
+        ForStatement: ['init', 'test', 'update', 'body'],
+        ForInStatement: ['left', 'right', 'body'],
+        ForOfStatement: ['left', 'right', 'body'],
+        FunctionDeclaration: ['id', 'params', 'defaults', 'rest', 'body'],
+        FunctionExpression: ['id', 'params', 'defaults', 'rest', 'body'],
+        GeneratorExpression: ['blocks', 'filter', 'body'],  // CAUTION: It's deferred to ES7.
+        Identifier: [],
+        IfStatement: ['test', 'consequent', 'alternate'],
+        ImportDeclaration: ['specifiers', 'source'],
+        ImportDefaultSpecifier: ['id'],
+        ImportNamespaceSpecifier: ['id'],
+        ImportSpecifier: ['id', 'name'],
+        Literal: [],
+        LabeledStatement: ['label', 'body'],
+        LogicalExpression: ['left', 'right'],
+        MemberExpression: ['object', 'property'],
+        MethodDefinition: ['key', 'value'],
+        ModuleSpecifier: [],
+        NewExpression: ['callee', 'arguments'],
+        ObjectExpression: ['properties'],
+        ObjectPattern: ['properties'],
+        Program: ['body'],
+        Property: ['key', 'value'],
+        ReturnStatement: ['argument'],
+        SequenceExpression: ['expressions'],
+        SpreadElement: ['argument'],
+        SwitchStatement: ['discriminant', 'cases'],
+        SwitchCase: ['test', 'consequent'],
+        TaggedTemplateExpression: ['tag', 'quasi'],
+        TemplateElement: [],
+        TemplateLiteral: ['quasis', 'expressions'],
+        ThisExpression: [],
+        ThrowStatement: ['argument'],
+        TryStatement: ['block', 'handlers', 'handler', 'guardedHandlers', 'finalizer'],
+        UnaryExpression: ['argument'],
+        UpdateExpression: ['argument'],
+        VariableDeclaration: ['declarations'],
+        VariableDeclarator: ['id', 'init'],
+        WhileStatement: ['test', 'body'],
+        WithStatement: ['object', 'body'],
+        YieldExpression: ['argument']
+    };
+
+    // unique id
+    BREAK = {};
+    SKIP = {};
+    REMOVE = {};
+
+    VisitorOption = {
+        Break: BREAK,
+        Skip: SKIP,
+        Remove: REMOVE
+    };
+
+    function Reference(parent, key) {
+        this.parent = parent;
+        this.key = key;
+    }
+
+    Reference.prototype.replace = function replace(node) {
+        this.parent[this.key] = node;
+    };
+
+    Reference.prototype.remove = function remove() {
+        if (isArray(this.parent)) {
+            this.parent.splice(this.key, 1);
+            return true;
+        } else {
+            this.replace(null);
+            return false;
+        }
+    };
+
+    function Element(node, path, wrap, ref) {
+        this.node = node;
+        this.path = path;
+        this.wrap = wrap;
+        this.ref = ref;
+    }
+
+    function Controller() { }
+
+    // API:
+    // return property path array from root to current node
+    Controller.prototype.path = function path() {
+        var i, iz, j, jz, result, element;
+
+        function addToPath(result, path) {
+            if (isArray(path)) {
+                for (j = 0, jz = path.length; j < jz; ++j) {
+                    result.push(path[j]);
+                }
+            } else {
+                result.push(path);
+            }
+        }
+
+        // root node
+        if (!this.__current.path) {
+            return null;
+        }
+
+        // first node is sentinel, second node is root element
+        result = [];
+        for (i = 2, iz = this.__leavelist.length; i < iz; ++i) {
+            element = this.__leavelist[i];
+            addToPath(result, element.path);
+        }
+        addToPath(result, this.__current.path);
+        return result;
+    };
+
+    // API:
+    // return type of current node
+    Controller.prototype.type = function () {
+        var node = this.current();
+        return node.type || this.__current.wrap;
+    };
+
+    // API:
+    // return array of parent elements
+    Controller.prototype.parents = function parents() {
+        var i, iz, result;
+
+        // first node is sentinel
+        result = [];
+        for (i = 1, iz = this.__leavelist.length; i < iz; ++i) {
+            result.push(this.__leavelist[i].node);
+        }
+
+        return result;
+    };
+
+    // API:
+    // return current node
+    Controller.prototype.current = function current() {
+        return this.__current.node;
+    };
+
+    Controller.prototype.__execute = function __execute(callback, element) {
+        var previous, result;
+
+        result = undefined;
+
+        previous  = this.__current;
+        this.__current = element;
+        this.__state = null;
+        if (callback) {
+            result = callback.call(this, element.node, this.__leavelist[this.__leavelist.length - 1].node);
+        }
+        this.__current = previous;
+
+        return result;
+    };
+
+    // API:
+    // notify control skip / break
+    Controller.prototype.notify = function notify(flag) {
+        this.__state = flag;
+    };
+
+    // API:
+    // skip child nodes of current node
+    Controller.prototype.skip = function () {
+        this.notify(SKIP);
+    };
+
+    // API:
+    // break traversals
+    Controller.prototype['break'] = function () {
+        this.notify(BREAK);
+    };
+
+    // API:
+    // remove node
+    Controller.prototype.remove = function () {
+        this.notify(REMOVE);
+    };
+
+    Controller.prototype.__initialize = function(root, visitor) {
+        this.visitor = visitor;
+        this.root = root;
+        this.__worklist = [];
+        this.__leavelist = [];
+        this.__current = null;
+        this.__state = null;
+        this.__fallback = visitor.fallback === 'iteration';
+        this.__keys = VisitorKeys;
+        if (visitor.keys) {
+            this.__keys = extend(objectCreate(this.__keys), visitor.keys);
+        }
+    };
+
+    function isNode(node) {
+        if (node == null) {
+            return false;
+        }
+        return typeof node === 'object' && typeof node.type === 'string';
+    }
+
+    function isProperty(nodeType, key) {
+        return (nodeType === Syntax.ObjectExpression || nodeType === Syntax.ObjectPattern) && 'properties' === key;
+    }
+
+    Controller.prototype.traverse = function traverse(root, visitor) {
+        var worklist,
+            leavelist,
+            element,
+            node,
+            nodeType,
+            ret,
+            key,
+            current,
+            current2,
+            candidates,
+            candidate,
+            sentinel;
+
+        this.__initialize(root, visitor);
+
+        sentinel = {};
+
+        // reference
+        worklist = this.__worklist;
+        leavelist = this.__leavelist;
+
+        // initialize
+        worklist.push(new Element(root, null, null, null));
+        leavelist.push(new Element(null, null, null, null));
+
+        while (worklist.length) {
+            element = worklist.pop();
+
+            if (element === sentinel) {
+                element = leavelist.pop();
+
+                ret = this.__execute(visitor.leave, element);
+
+                if (this.__state === BREAK || ret === BREAK) {
+                    return;
+                }
+                continue;
+            }
+
+            if (element.node) {
+
+                ret = this.__execute(visitor.enter, element);
+
+                if (this.__state === BREAK || ret === BREAK) {
+                    return;
+                }
+
+                worklist.push(sentinel);
+                leavelist.push(element);
+
+                if (this.__state === SKIP || ret === SKIP) {
+                    continue;
+                }
+
+                node = element.node;
+                nodeType = element.wrap || node.type;
+                candidates = this.__keys[nodeType];
+                if (!candidates) {
+                    if (this.__fallback) {
+                        candidates = objectKeys(node);
+                    } else {
+                        throw new Error('Unknown node type ' + nodeType + '.');
                     }
-                });
-                depth = arr.length - i - 1;
-                return true;
+                }
+
+                current = candidates.length;
+                while ((current -= 1) >= 0) {
+                    key = candidates[current];
+                    candidate = node[key];
+                    if (!candidate) {
+                        continue;
+                    }
+
+                    if (isArray(candidate)) {
+                        current2 = candidate.length;
+                        while ((current2 -= 1) >= 0) {
+                            if (!candidate[current2]) {
+                                continue;
+                            }
+                            if (isProperty(nodeType, candidates[current])) {
+                                element = new Element(candidate[current2], [key, current2], 'Property', null);
+                            } else if (isNode(candidate[current2])) {
+                                element = new Element(candidate[current2], [key, current2], null, null);
+                            } else {
+                                continue;
+                            }
+                            worklist.push(element);
+                        }
+                    } else if (isNode(candidate)) {
+                        worklist.push(new Element(candidate, key, null, null));
+                    }
+                }
+            }
+        }
+    };
+
+    Controller.prototype.replace = function replace(root, visitor) {
+        function removeElem(element) {
+            var i,
+                key,
+                nextElem,
+                parent;
+
+            if (element.ref.remove()) {
+                // When the reference is an element of an array.
+                key = element.ref.key;
+                parent = element.ref.parent;
+
+                // If removed from array, then decrease following items' keys.
+                i = worklist.length;
+                while (i--) {
+                    nextElem = worklist[i];
+                    if (nextElem.ref && nextElem.ref.parent === parent) {
+                        if  (nextElem.ref.key < key) {
+                            break;
+                        }
+                        --nextElem.ref.key;
+                    }
+                }
+            }
+        }
+
+        var worklist,
+            leavelist,
+            node,
+            nodeType,
+            target,
+            element,
+            current,
+            current2,
+            candidates,
+            candidate,
+            sentinel,
+            outer,
+            key;
+
+        this.__initialize(root, visitor);
+
+        sentinel = {};
+
+        // reference
+        worklist = this.__worklist;
+        leavelist = this.__leavelist;
+
+        // initialize
+        outer = {
+            root: root
+        };
+        element = new Element(root, null, null, new Reference(outer, 'root'));
+        worklist.push(element);
+        leavelist.push(element);
+
+        while (worklist.length) {
+            element = worklist.pop();
+
+            if (element === sentinel) {
+                element = leavelist.pop();
+
+                target = this.__execute(visitor.leave, element);
+
+                // node may be replaced with null,
+                // so distinguish between undefined and null in this place
+                if (target !== undefined && target !== BREAK && target !== SKIP && target !== REMOVE) {
+                    // replace
+                    element.ref.replace(target);
+                }
+
+                if (this.__state === REMOVE || target === REMOVE) {
+                    removeElem(element);
+                }
+
+                if (this.__state === BREAK || target === BREAK) {
+                    return outer.root;
+                }
+                continue;
+            }
+
+            target = this.__execute(visitor.enter, element);
+
+            // node may be replaced with null,
+            // so distinguish between undefined and null in this place
+            if (target !== undefined && target !== BREAK && target !== SKIP && target !== REMOVE) {
+                // replace
+                element.ref.replace(target);
+                element.node = target;
+            }
+
+            if (this.__state === REMOVE || target === REMOVE) {
+                removeElem(element);
+                element.node = null;
+            }
+
+            if (this.__state === BREAK || target === BREAK) {
+                return outer.root;
+            }
+
+            // node may be null
+            node = element.node;
+            if (!node) {
+                continue;
+            }
+
+            worklist.push(sentinel);
+            leavelist.push(element);
+
+            if (this.__state === SKIP || target === SKIP) {
+                continue;
+            }
+
+            nodeType = element.wrap || node.type;
+            candidates = this.__keys[nodeType];
+            if (!candidates) {
+                if (this.__fallback) {
+                    candidates = objectKeys(node);
+                } else {
+                    throw new Error('Unknown node type ' + nodeType + '.');
+                }
+            }
+
+            current = candidates.length;
+            while ((current -= 1) >= 0) {
+                key = candidates[current];
+                candidate = node[key];
+                if (!candidate) {
+                    continue;
+                }
+
+                if (isArray(candidate)) {
+                    current2 = candidate.length;
+                    while ((current2 -= 1) >= 0) {
+                        if (!candidate[current2]) {
+                            continue;
+                        }
+                        if (isProperty(nodeType, candidates[current])) {
+                            element = new Element(candidate[current2], [key, current2], 'Property', new Reference(candidate, current2));
+                        } else if (isNode(candidate[current2])) {
+                            element = new Element(candidate[current2], [key, current2], null, new Reference(candidate, current2));
+                        } else {
+                            continue;
+                        }
+                        worklist.push(element);
+                    }
+                } else if (isNode(candidate)) {
+                    worklist.push(new Element(candidate, key, null, new Reference(node, key)));
+                }
+            }
+        }
+
+        return outer.root;
+    };
+
+    function traverse(root, visitor) {
+        var controller = new Controller();
+        return controller.traverse(root, visitor);
+    }
+
+    function replace(root, visitor) {
+        var controller = new Controller();
+        return controller.replace(root, visitor);
+    }
+
+    function extendCommentRange(comment, tokens) {
+        var target;
+
+        target = upperBound(tokens, function search(token) {
+            return token.range[0] > comment.range[0];
+        });
+
+        comment.extendedRange = [comment.range[0], comment.range[1]];
+
+        if (target !== tokens.length) {
+            comment.extendedRange[1] = tokens[target].range[0];
+        }
+
+        target -= 1;
+        if (target >= 0) {
+            comment.extendedRange[0] = tokens[target].range[1];
+        }
+
+        return comment;
+    }
+
+    function attachComments(tree, providedComments, tokens) {
+        // At first, we should calculate extended comment ranges.
+        var comments = [], comment, len, i, cursor;
+
+        if (!tree.range) {
+            throw new Error('attachComments needs range information');
+        }
+
+        // tokens array is empty, we attach comments to tree as 'leadingComments'
+        if (!tokens.length) {
+            if (providedComments.length) {
+                for (i = 0, len = providedComments.length; i < len; i += 1) {
+                    comment = deepCopy(providedComments[i]);
+                    comment.extendedRange = [0, tree.range[0]];
+                    comments.push(comment);
+                }
+                tree.leadingComments = comments;
+            }
+            return tree;
+        }
+
+        for (i = 0, len = providedComments.length; i < len; i += 1) {
+            comments.push(extendCommentRange(deepCopy(providedComments[i]), tokens));
+        }
+
+        // This is based on John Freeman's implementation.
+        cursor = 0;
+        traverse(tree, {
+            enter: function (node) {
+                var comment;
+
+                while (cursor < comments.length) {
+                    comment = comments[cursor];
+                    if (comment.extendedRange[1] > node.range[0]) {
+                        break;
+                    }
+
+                    if (comment.extendedRange[1] === node.range[0]) {
+                        if (!node.leadingComments) {
+                            node.leadingComments = [];
+                        }
+                        node.leadingComments.push(comment);
+                        comments.splice(cursor, 1);
+                    } else {
+                        cursor += 1;
+                    }
+                }
+
+                // already out of owned node
+                if (cursor === comments.length) {
+                    return VisitorOption.Break;
+                }
+
+                if (comments[cursor].extendedRange[0] > node.range[1]) {
+                    return VisitorOption.Skip;
+                }
             }
         });
-        stack.push([target.name, []]);
-        return depth + ' pick';
-    }
 
-    astNode = scope.astNode;
-    stack = [];
-    stream = '';
+        cursor = 0;
+        traverse(tree, {
+            leave: function (node) {
+                var comment;
 
-    trav.traverse(astNode, {
-        enter: function (node) {
-            var forth;
-
-            switch(node.type) {
-
-            case trav.Syntax.FunctionDeclaration:
-                stack = [];
-
-                dfg.init.forEach(function (e) {
-                    stack.push([e, dfg.to[e] || []]);
-                });
-
-                forth = ': ' + node.name.name;
-                stream += forth + stackStatus(forth);
-                forth = cleanStack();
-                if (forth !== '') {
-                    stream += forth + stackStatus(forth);
-                }
-                break;
-
-            case trav.Syntax.ExpressionStatement:
-                // node.forth = cleanStack();
-                break;
-
-            }
-        },
-        leave: function (node) {
-            // var // path,
-            var forth;
-        //         tail;
-        //
-        //     path = this.path() || [];
-        //     tail = path[path.length - 1];
-        //
-            switch (node.type) {
-        //
-        //     case trav.Syntax.LiteralNumericExpression:
-        //         node.forth = node.value + '';
-        //         break;
-        //
-        //     case trav.Syntax.Identifier:
-        //         node.forth = node.name;
-        //         break;
-        //
-        //     case trav.Syntax.Script:
-        //         node.forth = node.body.forth;
-        //         break;
-        //
-        //     case trav.Syntax.BlockStatement:
-        //         node.forth = node.block.forth;
-        //         break;
-        //
-        //     case trav.Syntax.VariableDeclarationStatement:
-        //         node.forth = node.declaration.forth;
-        //         break;
-        //
-        //     case trav.Syntax.IdentifierExpression:
-        //         if (tail === 'binding') {
-        //             forth = node.identifier.forth + ' !';
-        //             forth += stackStatus(stack, forth);
-        //         } else {
-        //             forth = node.identifier.forth + ' @';
-        //         }
-        //         node.forth = forth; //  + stackStatus(stack, forth);
-        //         break;
-        //
-            case trav.Syntax.BinaryExpression:
-                // TODO
-                // locate variable
-                // global: put it on stack from global scope
-                // local: PICK it from stack location
-
-                forth = '';
-
-                [node.left, node.right].forEach(function (e) {
-                    switch (varType(e)) {
-
-                    case 0:
-                        forth += pick(e, node) + ' ';
-                        break;
-
-                    case 1:
-                        forth += e.name + ' @ ';
-                        stack.push([]);
-                        break;
-
-                    case 2:
-                        forth += e.value + ' ';
-                        stack.push([]);
+                while (cursor < comments.length) {
+                    comment = comments[cursor];
+                    if (node.range[1] < comment.extendedRange[0]) {
                         break;
                     }
-                });
-                stack.pop();
-                stack.pop();
-                stack.push([node.name, dfg.to[node.name] || []]);
-                // console.log(JSON.stringify(dfg.to[node.name]));
 
-                // left     right
-                // local0   local0 -- same local
-                // local0   local1
-                // local    global
-                // local    literal
+                    if (node.range[1] === comment.extendedRange[0]) {
+                        if (!node.trailingComments) {
+                            node.trailingComments = [];
+                        }
+                        node.trailingComments.push(comment);
+                        comments.splice(cursor, 1);
+                    } else {
+                        cursor += 1;
+                    }
+                }
 
-                // global   local
-                // global0  global0 -- same global
-                // global0  global1
-                // global   literal
+                // already out of owned node
+                if (cursor === comments.length) {
+                    return VisitorOption.Break;
+                }
 
-                // literal  local
-                // literal  global
-                // literal0 literal0 -- same literal
-                // literal0 literal1
-
-                forth += forthOperators(node.operator);
-
-                forth = cleanStack(forth);
-                forth = peephole(forth);
-                stream += forth + stackStatus(forth);
-                break;
-
-            case trav.Syntax.AssignmentExpression:
-                // node.forth
-                //     = node.expression.forth
-                //     + node.binding.forth;
-                stack.pop();
-                stack.push([node.binding.name, [dfg.to[node.binding.name]]]);
-                // stream += node.expression.name + ' --> ' + ;
-                stream += stackStatus('');
-                break;
-        //
-        //     case trav.Syntax.ExpressionStatement:
-        //         node.forth += node.expression.forth;
-        //         break;
-        //
-        //     case trav.Syntax.IfStatement:
-        //         if (node.alternate && node.alternate.forth) {
-        //             node.forth
-        //                 = node.test.forth
-        //                 + 'if' + stackStatus(stack, 'if')
-        //                 + node.consequent.forth
-        //                 + 'else' + stackStatus(stack, 'else')
-        //                 + node.alternate.forth
-        //                 + 'then' + stackStatus(stack, 'then');
-        //         } else {
-        //             node.forth
-        //                 = node.test.forth
-        //                 + 'if' + stackStatus(stack, 'if')
-        //                 + node.consequent.forth
-        //                 + 'then' + stackStatus(stack, 'then');
-        //         }
-        //         break;
-        //
-        //     case trav.Syntax.ForStatement: // init test update body
-        //         node.forth
-        //             = node.init.forth
-        //             + 'begin\n'
-        //             + indent(node.test.forth)
-        //             + 'while\n'
-        //             + indent(node.body.forth + ' ' + node.update.forth)
-        //             + 'repeat\n';
-        //         break;
-        //
-            case trav.Syntax.FunctionDeclaration:
-        //         forth = ': ' + node.name.forth;
-        //
-        //         node.forth
-        //             = forth
-        //             + stackStatus(stack, forth)
-        //             + node.body.forth
-                forth = ';';
-                stream += forth + stackStatus(forth);
-                break;
-        //
-        //     case trav.Syntax.ReturnStatement:
-        //         node.forth = node.expression.forth
-        //             + 'exit' + stackStatus(stack, 'exit');
-        //         break;
-        //
-        //     case trav.Syntax.VariableDeclarator:
-        //         node.forth = '';
-        //         // if (node.init) {
-        //         //     node.forth
-        //         //         = '\ncreate ' + node.binding.forth + ' '
-        //         //         + node.init.forth + ' ,';
-        //         // } else {
-        //         //     node.forth
-        //         //         = '\nvariable ' + node.binding.forth;
-        //         // }
-        //         break;
-        //
-        //     case trav.Syntax.FunctionBody:
-        //     case trav.Syntax.Block:
-        //         node.forth = '';
-        //         node.statements.forEach(function (e) {
-        //             // if (node.forth !== '') {
-        //             //     node.forth += '';
-        //             // }
-        //             node.forth += e.forth;
-        //         });
-        //         break;
-        //
-        //     case trav.Syntax.VariableDeclaration:
-        //         node.forth = '';
-        //         node.declarators.forEach(function (e) {
-        //             if (node.forth !== '') {
-        //                 node.forth += '\n';
-        //             }
-        //             node.forth += e.forth;
-        //         });
-        //         break;
-        //
-            }
-        }
-    });
-
-    return stream;
-}
-
-module.exports = function (scope, options) {
-    // console.log(JSON.stringify(heu, null, 2));
-
-    var res;
-
-    res = '';
-
-    scope.variableList.forEach(function (e) {
-        if (e.declarations.length === 0) {
-            res += 'variable ' + e.name + '\n';
-        }
-    });
-
-    scope.children.forEach(function (e) {
-        res += '\n';
-        // res += '\\ from: ' + JSON.stringify(e.dfg.from) + '\n';
-        // res += '\\   to: ' + JSON.stringify(e.dfg.to) + '\n';
-        res += insertForth(e, e.dfg, options);
-        // res += e.astNode.forth;
-    });
-
-    scope.forth = res;
-    return;
-
-};
-
-},{"lodash":2,"shift-traverse":94}],5:[function(require,module,exports){
-var emit = require('./emit'),
-    dfg = require('./dfg'),
-    naming = require('./naming');
-
-module.exports = {
-    emit: emit,
-    dfg: dfg,
-    naming: naming
-};
-
-},{"./dfg":3,"./emit":4,"./naming":6}],6:[function(require,module,exports){
-'use strict';
-
-var trav = require('shift-traverse');
-
-module.exports = function (tree) {
-    var counter;
-
-    counter = 0;
-    trav.traverse(tree, {
-        enter: function (node) {
-            if (node.type === trav.Syntax.FunctionBody) {
-                counter = 0;
-                return;
-            }
-
-            if (node.name === undefined) {
-                switch (node.type) {
-
-                case trav.Syntax.BinaryExpression:
-                case trav.Syntax.ReturnStatement:
-                    node.name = '$' + counter++;
-                    break;
-                case trav.Syntax.IdentifierExpression:
-                    node.name = node.identifier.name;
-                    break;
+                if (comments[cursor].extendedRange[0] > node.range[1]) {
+                    return VisitorOption.Skip;
                 }
             }
-        }
-    });
+        });
+
+        return tree;
+    }
+
+    exports.version = '1.8.1-dev';
+    exports.Syntax = Syntax;
+    exports.traverse = traverse;
+    exports.replace = replace;
+    exports.attachComments = attachComments;
+    exports.VisitorKeys = VisitorKeys;
+    exports.VisitorOption = VisitorOption;
+    exports.Controller = Controller;
+    exports.cloneEnvironment = function () { return clone({}); };
+
+    return exports;
+}));
+/* vim: set sw=4 ts=4 et tw=80 : */
+
+},{}],10:[function(require,module,exports){
+'use strict';
+
+function ToObject(val) {
+	if (val == null) {
+		throw new TypeError('Object.assign cannot be called with null or undefined');
+	}
+
+	return Object(val);
+}
+
+module.exports = Object.assign || function (target, source) {
+	var from;
+	var keys;
+	var to = ToObject(target);
+
+	for (var s = 1; s < arguments.length; s++) {
+		from = arguments[s];
+		keys = Object.keys(Object(from));
+
+		for (var i = 0; i < keys.length; i++) {
+			to[keys[i]] = from[keys[i]];
+		}
+	}
+
+	return to;
 };
 
-},{"shift-traverse":94}],7:[function(require,module,exports){
+},{}],11:[function(require,module,exports){
+module.exports={
+  "name": "shift-traverse",
+  "version": "1.0.1",
+  "description": "traversal functionality for the Shift AST format",
+  "author": {
+    "name": "Yusuke SUZUKI"
+  },
+  "homepage": "https://github.com/Constellation/shift-traverse-js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Constellation/shift-traverse-js.git"
+  },
+  "main": "lib/index.js",
+  "maintainers": [
+    {
+      "name": "constellation",
+      "email": "utatane.tea@gmail.com"
+    }
+  ],
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "test": "gulp test"
+  },
+  "dependencies": {
+    "estraverse": "^1.9.1",
+    "object-assign": "^2.0.0"
+  },
+  "devDependencies": {
+    "gulp": "^3.8.10",
+    "gulp-6to5": "^1.0.2",
+    "gulp-bump": "^0.1.11",
+    "gulp-espower": "^0.10.0",
+    "gulp-filter": "^2.0.0",
+    "gulp-git": "^0.5.5",
+    "gulp-mocha": "^2.0.0",
+    "gulp-sourcemaps": "^1.3.0",
+    "gulp-tag-version": "^1.2.1",
+    "power-assert": "^0.10.0",
+    "shift-ast": "^1.0.1",
+    "shift-codegen": "^1.0.0",
+    "shift-parser": "^1.0.0"
+  },
+  "keywords": [
+    "Shift",
+    "AST",
+    "traversal",
+    "abstract",
+    "syntax",
+    "tree"
+  ],
+  "bugs": {
+    "url": "https://github.com/Constellation/shift-traverse-js/issues"
+  },
+  "licenses": [
+    {
+      "type": "BSD",
+      "url": "http://github.com/Constellation/shift-traverse-js/raw/master/LICENSE.BSD"
+    }
+  ],
+  "gitHead": "19c83c795e429433d35b0faaa7f03dadc14990aa",
+  "_id": "shift-traverse@1.0.1",
+  "_shasum": "c8b96c27e865464598523eee2c3ae4fc9f67db58",
+  "_from": "shift-traverse@*",
+  "_npmVersion": "2.0.0-alpha-5",
+  "_npmUser": {
+    "name": "constellation",
+    "email": "utatane.tea@gmail.com"
+  },
+  "dist": {
+    "shasum": "c8b96c27e865464598523eee2c3ae4fc9f67db58",
+    "tarball": "http://registry.npmjs.org/shift-traverse/-/shift-traverse-1.0.1.tgz"
+  },
+  "directories": {},
+  "_resolved": "https://registry.npmjs.org/shift-traverse/-/shift-traverse-1.0.1.tgz",
+  "readme": "ERROR: No README data found!"
+}
+
+},{}],12:[function(require,module,exports){
 "use strict";
 
 var ErrorMessages = exports.ErrorMessages = {
@@ -11933,7 +13153,7 @@ var ErrorMessages = exports.ErrorMessages = {
   STRICT_RESERVED_WORD: "Use of future reserved word in strict mode"
 };
 
-},{}],8:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
 "use strict";
 
 var Parser = require("./parser").Parser;
@@ -11942,7 +13162,7 @@ function parse(code) {
 }
 exports["default"] = parse;
 
-},{"./parser":9}],9:[function(require,module,exports){
+},{"./parser":14}],14:[function(require,module,exports){
 "use strict";
 
 var _toArray = function (arr) {
@@ -13396,7 +14616,7 @@ var Parser = (function (Tokenizer) {
 
 exports.Parser = Parser;
 
-},{"./errors":7,"./tokenizer":10,"./utils":11,"shift-ast":12}],10:[function(require,module,exports){
+},{"./errors":12,"./tokenizer":15,"./utils":16,"shift-ast":17}],15:[function(require,module,exports){
 "use strict";
 
 var _extends = function (child, parent) {
@@ -14845,7 +16065,7 @@ var Tokenizer = (function () {
 
 exports["default"] = Tokenizer;
 
-},{"./errors":7,"./utils":11}],11:[function(require,module,exports){
+},{"./errors":12,"./utils":16}],16:[function(require,module,exports){
 "use strict";
 
 exports.isRestrictedWord = isRestrictedWord;
@@ -14930,7 +16150,7 @@ function getHexValue(rune) {
   return -1;
 }
 
-},{}],12:[function(require,module,exports){
+},{}],17:[function(require,module,exports){
 "use strict";
 
 var _get = function get(object, property, receiver) { var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc && desc.writable) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
@@ -15530,7 +16750,7 @@ var VariableDeclarator = exports.VariableDeclarator = function VariableDeclarato
   this.init = init;
 };
 
-},{}],13:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 "use strict";
 
 var _extends = function (child, parent) {
@@ -15675,7 +16895,7 @@ var CatchDeclaration = (function (Declaration) {
 
 exports.CatchDeclaration = CatchDeclaration;
 
-},{}],14:[function(require,module,exports){
+},{}],19:[function(require,module,exports){
 "use strict";
 
 /**
@@ -15707,7 +16927,7 @@ function analyze(script) {
 }
 exports["default"] = analyze;
 
-},{"./declaration":13,"./reference":15,"./scope":18,"./scope-analyzer":16,"es6-symbol/implement":72}],15:[function(require,module,exports){
+},{"./declaration":18,"./reference":20,"./scope":23,"./scope-analyzer":21,"es6-symbol/implement":80}],20:[function(require,module,exports){
 "use strict";
 
 var _extends = function (child, parent) {
@@ -15774,7 +16994,7 @@ var ReadWriteReference = (function (Reference) {
 
 exports.ReadWriteReference = ReadWriteReference;
 
-},{}],16:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 "use strict";
 
 var _extends = function (child, parent) {
@@ -15932,7 +17152,7 @@ var ScopeAnalyzer = (function (MonoidalReducer) {
 
 exports["default"] = ScopeAnalyzer;
 
-},{"./declaration":13,"./reference":15,"./scope":18,"./scope-state":17,"shift-reducer":91}],17:[function(require,module,exports){
+},{"./declaration":18,"./reference":20,"./scope":23,"./scope-state":22,"shift-reducer":98}],22:[function(require,module,exports){
 "use strict";
 
 var Map = require("es6-map");
@@ -16043,7 +17263,7 @@ var ScopeState = (function () {
 
 exports["default"] = ScopeState;
 
-},{"./scope":18,"./variable":19,"es6-map":20,"multimap":90}],18:[function(require,module,exports){
+},{"./scope":23,"./variable":24,"es6-map":25,"multimap":97}],23:[function(require,module,exports){
 "use strict";
 
 var _extends = function (child, parent) {
@@ -16132,7 +17352,7 @@ var GlobalScope = (function (Scope) {
 
 exports.GlobalScope = GlobalScope;
 
-},{"./variable":19,"es6-map":20}],19:[function(require,module,exports){
+},{"./variable":24,"es6-map":25}],24:[function(require,module,exports){
 "use strict";
 
 var Variable = function Variable(name, references, declarations) {
@@ -16143,12 +17363,12 @@ var Variable = function Variable(name, references, declarations) {
 
 exports["default"] = Variable;
 
-},{}],20:[function(require,module,exports){
+},{}],25:[function(require,module,exports){
 'use strict';
 
 module.exports = require('./is-implemented')() ? Map : require('./polyfill');
 
-},{"./is-implemented":21,"./polyfill":71}],21:[function(require,module,exports){
+},{"./is-implemented":26,"./polyfill":79}],26:[function(require,module,exports){
 'use strict';
 
 module.exports = function () {
@@ -16180,7 +17400,7 @@ module.exports = function () {
 	return true;
 };
 
-},{}],22:[function(require,module,exports){
+},{}],27:[function(require,module,exports){
 // Exports true if environment provides native `Map` implementation,
 // whatever that is.
 
@@ -16191,13 +17411,13 @@ module.exports = (function () {
 	return (Object.prototype.toString.call(Map.prototype) === '[object Map]');
 }());
 
-},{}],23:[function(require,module,exports){
+},{}],28:[function(require,module,exports){
 'use strict';
 
 module.exports = require('es5-ext/object/primitive-set')('key',
 	'value', 'key+value');
 
-},{"es5-ext/object/primitive-set":48}],24:[function(require,module,exports){
+},{"es5-ext/object/primitive-set":53}],29:[function(require,module,exports){
 'use strict';
 
 var setPrototypeOf    = require('es5-ext/object/set-prototype-of')
@@ -16237,7 +17457,7 @@ MapIterator.prototype = Object.create(Iterator.prototype, {
 Object.defineProperty(MapIterator.prototype, toStringTagSymbol,
 	d('c', 'Map Iterator'));
 
-},{"./iterator-kinds":23,"d":26,"es5-ext/object/set-prototype-of":49,"es6-iterator":61,"es6-symbol":73}],25:[function(require,module,exports){
+},{"./iterator-kinds":28,"d":31,"es5-ext/object/set-prototype-of":54,"es6-iterator":66,"es6-symbol":75}],30:[function(require,module,exports){
 'use strict';
 
 var copy       = require('es5-ext/object/copy')
@@ -16270,7 +17490,7 @@ module.exports = function (props/*, bindTo*/) {
 	});
 };
 
-},{"es5-ext/object/copy":38,"es5-ext/object/map":46,"es5-ext/object/valid-callable":52,"es5-ext/object/valid-value":53}],26:[function(require,module,exports){
+},{"es5-ext/object/copy":43,"es5-ext/object/map":51,"es5-ext/object/valid-callable":57,"es5-ext/object/valid-value":58}],31:[function(require,module,exports){
 'use strict';
 
 var assign        = require('es5-ext/object/assign')
@@ -16335,7 +17555,7 @@ d.gs = function (dscr, get, set/*, options*/) {
 	return !options ? desc : assign(normalizeOpts(options), desc);
 };
 
-},{"es5-ext/object/assign":35,"es5-ext/object/is-callable":41,"es5-ext/object/normalize-options":47,"es5-ext/string/#/contains":54}],27:[function(require,module,exports){
+},{"es5-ext/object/assign":40,"es5-ext/object/is-callable":46,"es5-ext/object/normalize-options":52,"es5-ext/string/#/contains":59}],32:[function(require,module,exports){
 // Inspired by Google Closure:
 // http://closure-library.googlecode.com/svn/docs/
 // closure_goog_array_array.js.html#goog.array.clear
@@ -16349,7 +17569,7 @@ module.exports = function () {
 	return this;
 };
 
-},{"../../object/valid-value":53}],28:[function(require,module,exports){
+},{"../../object/valid-value":58}],33:[function(require,module,exports){
 'use strict';
 
 var toPosInt = require('../../number/to-pos-integer')
@@ -16380,14 +17600,14 @@ module.exports = function (searchElement/*, fromIndex*/) {
 	return -1;
 };
 
-},{"../../number/to-pos-integer":33,"../../object/valid-value":53}],29:[function(require,module,exports){
+},{"../../number/to-pos-integer":38,"../../object/valid-value":58}],34:[function(require,module,exports){
 'use strict';
 
 module.exports = require('./is-implemented')()
 	? Math.sign
 	: require('./shim');
 
-},{"./is-implemented":30,"./shim":31}],30:[function(require,module,exports){
+},{"./is-implemented":35,"./shim":36}],35:[function(require,module,exports){
 'use strict';
 
 module.exports = function () {
@@ -16396,7 +17616,7 @@ module.exports = function () {
 	return ((sign(10) === 1) && (sign(-20) === -1));
 };
 
-},{}],31:[function(require,module,exports){
+},{}],36:[function(require,module,exports){
 'use strict';
 
 module.exports = function (value) {
@@ -16405,7 +17625,7 @@ module.exports = function (value) {
 	return (value > 0) ? 1 : -1;
 };
 
-},{}],32:[function(require,module,exports){
+},{}],37:[function(require,module,exports){
 'use strict';
 
 var sign = require('../math/sign')
@@ -16419,7 +17639,7 @@ module.exports = function (value) {
 	return sign(value) * floor(abs(value));
 };
 
-},{"../math/sign":29}],33:[function(require,module,exports){
+},{"../math/sign":34}],38:[function(require,module,exports){
 'use strict';
 
 var toInteger = require('./to-integer')
@@ -16428,7 +17648,7 @@ var toInteger = require('./to-integer')
 
 module.exports = function (value) { return max(0, toInteger(value)); };
 
-},{"./to-integer":32}],34:[function(require,module,exports){
+},{"./to-integer":37}],39:[function(require,module,exports){
 // Internal method, used by iteration functions.
 // Calls a function for each key-value pair found in object
 // Optionally takes compareFn to iterate object in specific order
@@ -16459,14 +17679,14 @@ module.exports = function (method, defVal) {
 	};
 };
 
-},{"./is-callable":41,"./valid-callable":52,"./valid-value":53}],35:[function(require,module,exports){
+},{"./is-callable":46,"./valid-callable":57,"./valid-value":58}],40:[function(require,module,exports){
 'use strict';
 
 module.exports = require('./is-implemented')()
 	? Object.assign
 	: require('./shim');
 
-},{"./is-implemented":36,"./shim":37}],36:[function(require,module,exports){
+},{"./is-implemented":41,"./shim":42}],41:[function(require,module,exports){
 'use strict';
 
 module.exports = function () {
@@ -16477,7 +17697,7 @@ module.exports = function () {
 	return (obj.foo + obj.bar + obj.trzy) === 'razdwatrzy';
 };
 
-},{}],37:[function(require,module,exports){
+},{}],42:[function(require,module,exports){
 'use strict';
 
 var keys  = require('../keys')
@@ -16501,7 +17721,7 @@ module.exports = function (dest, src/*, …srcn*/) {
 	return dest;
 };
 
-},{"../keys":43,"../valid-value":53}],38:[function(require,module,exports){
+},{"../keys":48,"../valid-value":58}],43:[function(require,module,exports){
 'use strict';
 
 var assign = require('./assign')
@@ -16513,7 +17733,7 @@ module.exports = function (obj) {
 	return assign({}, obj);
 };
 
-},{"./assign":35,"./valid-value":53}],39:[function(require,module,exports){
+},{"./assign":40,"./valid-value":58}],44:[function(require,module,exports){
 // Workaround for http://code.google.com/p/v8/issues/detail?id=2804
 
 'use strict';
@@ -16551,19 +17771,19 @@ module.exports = (function () {
 	};
 }());
 
-},{"./set-prototype-of/is-implemented":50,"./set-prototype-of/shim":51}],40:[function(require,module,exports){
+},{"./set-prototype-of/is-implemented":55,"./set-prototype-of/shim":56}],45:[function(require,module,exports){
 'use strict';
 
 module.exports = require('./_iterate')('forEach');
 
-},{"./_iterate":34}],41:[function(require,module,exports){
+},{"./_iterate":39}],46:[function(require,module,exports){
 // Deprecated
 
 'use strict';
 
 module.exports = function (obj) { return typeof obj === 'function'; };
 
-},{}],42:[function(require,module,exports){
+},{}],47:[function(require,module,exports){
 'use strict';
 
 var map = { function: true, object: true };
@@ -16572,14 +17792,14 @@ module.exports = function (x) {
 	return ((x != null) && map[typeof x]) || false;
 };
 
-},{}],43:[function(require,module,exports){
+},{}],48:[function(require,module,exports){
 'use strict';
 
 module.exports = require('./is-implemented')()
 	? Object.keys
 	: require('./shim');
 
-},{"./is-implemented":44,"./shim":45}],44:[function(require,module,exports){
+},{"./is-implemented":49,"./shim":50}],49:[function(require,module,exports){
 'use strict';
 
 module.exports = function () {
@@ -16589,7 +17809,7 @@ module.exports = function () {
 	} catch (e) { return false; }
 };
 
-},{}],45:[function(require,module,exports){
+},{}],50:[function(require,module,exports){
 'use strict';
 
 var keys = Object.keys;
@@ -16598,7 +17818,7 @@ module.exports = function (object) {
 	return keys(object == null ? object : Object(object));
 };
 
-},{}],46:[function(require,module,exports){
+},{}],51:[function(require,module,exports){
 'use strict';
 
 var callable = require('./valid-callable')
@@ -16615,7 +17835,7 @@ module.exports = function (obj, cb/*, thisArg*/) {
 	return o;
 };
 
-},{"./for-each":40,"./valid-callable":52}],47:[function(require,module,exports){
+},{"./for-each":45,"./valid-callable":57}],52:[function(require,module,exports){
 'use strict';
 
 var forEach = Array.prototype.forEach, create = Object.create;
@@ -16634,7 +17854,7 @@ module.exports = function (options/*, …options*/) {
 	return result;
 };
 
-},{}],48:[function(require,module,exports){
+},{}],53:[function(require,module,exports){
 'use strict';
 
 var forEach = Array.prototype.forEach, create = Object.create;
@@ -16645,14 +17865,14 @@ module.exports = function (arg/*, …args*/) {
 	return set;
 };
 
-},{}],49:[function(require,module,exports){
+},{}],54:[function(require,module,exports){
 'use strict';
 
 module.exports = require('./is-implemented')()
 	? Object.setPrototypeOf
 	: require('./shim');
 
-},{"./is-implemented":50,"./shim":51}],50:[function(require,module,exports){
+},{"./is-implemented":55,"./shim":56}],55:[function(require,module,exports){
 'use strict';
 
 var create = Object.create, getPrototypeOf = Object.getPrototypeOf
@@ -16665,7 +17885,7 @@ module.exports = function (/*customCreate*/) {
 	return getPrototypeOf(setPrototypeOf(customCreate(null), x)) === x;
 };
 
-},{}],51:[function(require,module,exports){
+},{}],56:[function(require,module,exports){
 // Big thanks to @WebReflection for sorting this out
 // https://gist.github.com/WebReflection/5593554
 
@@ -16740,7 +17960,7 @@ module.exports = (function (status) {
 
 require('../create');
 
-},{"../create":39,"../is-object":42,"../valid-value":53}],52:[function(require,module,exports){
+},{"../create":44,"../is-object":47,"../valid-value":58}],57:[function(require,module,exports){
 'use strict';
 
 module.exports = function (fn) {
@@ -16748,7 +17968,7 @@ module.exports = function (fn) {
 	return fn;
 };
 
-},{}],53:[function(require,module,exports){
+},{}],58:[function(require,module,exports){
 'use strict';
 
 module.exports = function (value) {
@@ -16756,14 +17976,14 @@ module.exports = function (value) {
 	return value;
 };
 
-},{}],54:[function(require,module,exports){
+},{}],59:[function(require,module,exports){
 'use strict';
 
 module.exports = require('./is-implemented')()
 	? String.prototype.contains
 	: require('./shim');
 
-},{"./is-implemented":55,"./shim":56}],55:[function(require,module,exports){
+},{"./is-implemented":60,"./shim":61}],60:[function(require,module,exports){
 'use strict';
 
 var str = 'razdwatrzy';
@@ -16773,7 +17993,7 @@ module.exports = function () {
 	return ((str.contains('dwa') === true) && (str.contains('foo') === false));
 };
 
-},{}],56:[function(require,module,exports){
+},{}],61:[function(require,module,exports){
 'use strict';
 
 var indexOf = String.prototype.indexOf;
@@ -16782,7 +18002,7 @@ module.exports = function (searchString/*, position*/) {
 	return indexOf.call(this, searchString, arguments[1]) > -1;
 };
 
-},{}],57:[function(require,module,exports){
+},{}],62:[function(require,module,exports){
 'use strict';
 
 var toString = Object.prototype.toString
@@ -16794,7 +18014,7 @@ module.exports = function (x) {
 		((x instanceof String) || (toString.call(x) === id))) || false;
 };
 
-},{}],58:[function(require,module,exports){
+},{}],63:[function(require,module,exports){
 'use strict';
 
 var setPrototypeOf = require('es5-ext/object/set-prototype-of')
@@ -16826,7 +18046,7 @@ ArrayIterator.prototype = Object.create(Iterator.prototype, {
 	toString: d(function () { return '[object Array Iterator]'; })
 });
 
-},{"./":61,"d":26,"es5-ext/object/set-prototype-of":49,"es5-ext/string/#/contains":54}],59:[function(require,module,exports){
+},{"./":66,"d":31,"es5-ext/object/set-prototype-of":54,"es5-ext/string/#/contains":59}],64:[function(require,module,exports){
 'use strict';
 
 var callable = require('es5-ext/object/valid-callable')
@@ -16872,7 +18092,7 @@ module.exports = function (iterable, cb/*, thisArg*/) {
 	}
 };
 
-},{"./get":60,"es5-ext/object/valid-callable":52,"es5-ext/string/is-string":57}],60:[function(require,module,exports){
+},{"./get":65,"es5-ext/object/valid-callable":57,"es5-ext/string/is-string":62}],65:[function(require,module,exports){
 'use strict';
 
 var isString = require('es5-ext/string/is-string')
@@ -16887,7 +18107,7 @@ module.exports = function (obj) {
 	return new ArrayIterator(obj);
 };
 
-},{"./array":58,"./string":68,"./valid-iterable":69,"es5-ext/string/is-string":57,"es6-symbol":63}],61:[function(require,module,exports){
+},{"./array":63,"./string":73,"./valid-iterable":74,"es5-ext/string/is-string":62,"es6-symbol":68}],66:[function(require,module,exports){
 'use strict';
 
 var clear    = require('es5-ext/array/#/clear')
@@ -16979,7 +18199,7 @@ defineProperty(Iterator.prototype, Symbol.iterator, d(function () {
 }));
 defineProperty(Iterator.prototype, Symbol.toStringTag, d('', 'Iterator'));
 
-},{"d":26,"d/auto-bind":25,"es5-ext/array/#/clear":27,"es5-ext/object/assign":35,"es5-ext/object/valid-callable":52,"es5-ext/object/valid-value":53,"es6-symbol":63}],62:[function(require,module,exports){
+},{"d":31,"d/auto-bind":30,"es5-ext/array/#/clear":32,"es5-ext/object/assign":40,"es5-ext/object/valid-callable":57,"es5-ext/object/valid-value":58,"es6-symbol":68}],67:[function(require,module,exports){
 'use strict';
 
 var isString       = require('es5-ext/string/is-string')
@@ -16994,12 +18214,12 @@ module.exports = function (value) {
 	return (typeof value[iteratorSymbol] === 'function');
 };
 
-},{"es5-ext/string/is-string":57,"es6-symbol":63}],63:[function(require,module,exports){
+},{"es5-ext/string/is-string":62,"es6-symbol":68}],68:[function(require,module,exports){
 'use strict';
 
 module.exports = require('./is-implemented')() ? Symbol : require('./polyfill');
 
-},{"./is-implemented":64,"./polyfill":66}],64:[function(require,module,exports){
+},{"./is-implemented":69,"./polyfill":71}],69:[function(require,module,exports){
 'use strict';
 
 module.exports = function () {
@@ -17019,14 +18239,14 @@ module.exports = function () {
 	return true;
 };
 
-},{}],65:[function(require,module,exports){
+},{}],70:[function(require,module,exports){
 'use strict';
 
 module.exports = function (x) {
 	return (x && ((typeof x === 'symbol') || (x['@@toStringTag'] === 'Symbol'))) || false;
 };
 
-},{}],66:[function(require,module,exports){
+},{}],71:[function(require,module,exports){
 'use strict';
 
 var d              = require('d')
@@ -17105,7 +18325,7 @@ defineProperty(HiddenSymbol.prototype, Symbol.toPrimitive,
 defineProperty(HiddenSymbol.prototype, Symbol.toStringTag,
 	d('c', Symbol.prototype[Symbol.toStringTag]));
 
-},{"./validate-symbol":67,"d":26}],67:[function(require,module,exports){
+},{"./validate-symbol":72,"d":31}],72:[function(require,module,exports){
 'use strict';
 
 var isSymbol = require('./is-symbol');
@@ -17115,7 +18335,7 @@ module.exports = function (value) {
 	return value;
 };
 
-},{"./is-symbol":65}],68:[function(require,module,exports){
+},{"./is-symbol":70}],73:[function(require,module,exports){
 // Thanks @mathiasbynens
 // http://mathiasbynens.be/notes/javascript-unicode#iterating-over-symbols
 
@@ -17154,7 +18374,7 @@ StringIterator.prototype = Object.create(Iterator.prototype, {
 	toString: d(function () { return '[object String Iterator]'; })
 });
 
-},{"./":61,"d":26,"es5-ext/object/set-prototype-of":49}],69:[function(require,module,exports){
+},{"./":66,"d":31,"es5-ext/object/set-prototype-of":54}],74:[function(require,module,exports){
 'use strict';
 
 var isIterable = require('./is-iterable');
@@ -17164,7 +18384,85 @@ module.exports = function (value) {
 	return value;
 };
 
-},{"./is-iterable":62}],70:[function(require,module,exports){
+},{"./is-iterable":67}],75:[function(require,module,exports){
+arguments[4][68][0].apply(exports,arguments)
+},{"./is-implemented":76,"./polyfill":77,"dup":68}],76:[function(require,module,exports){
+'use strict';
+
+module.exports = function () {
+	var symbol;
+	if (typeof Symbol !== 'function') return false;
+	symbol = Symbol('test symbol');
+	try { String(symbol); } catch (e) { return false; }
+	if (typeof Symbol.iterator === 'symbol') return true;
+
+	// Return 'true' for polyfills
+	if (typeof Symbol.isConcatSpreadable !== 'object') return false;
+	if (typeof Symbol.isRegExp !== 'object') return false;
+	if (typeof Symbol.iterator !== 'object') return false;
+	if (typeof Symbol.toPrimitive !== 'object') return false;
+	if (typeof Symbol.toStringTag !== 'object') return false;
+	if (typeof Symbol.unscopables !== 'object') return false;
+
+	return true;
+};
+
+},{}],77:[function(require,module,exports){
+'use strict';
+
+var d = require('d')
+
+  , create = Object.create, defineProperties = Object.defineProperties
+  , generateName, Symbol;
+
+generateName = (function () {
+	var created = create(null);
+	return function (desc) {
+		var postfix = 0;
+		while (created[desc + (postfix || '')]) ++postfix;
+		desc += (postfix || '');
+		created[desc] = true;
+		return '@@' + desc;
+	};
+}());
+
+module.exports = Symbol = function (description) {
+	var symbol;
+	if (this instanceof Symbol) {
+		throw new TypeError('TypeError: Symbol is not a constructor');
+	}
+	symbol = create(Symbol.prototype);
+	description = (description === undefined ? '' : String(description));
+	return defineProperties(symbol, {
+		__description__: d('', description),
+		__name__: d('', generateName(description))
+	});
+};
+
+Object.defineProperties(Symbol, {
+	create: d('', Symbol('create')),
+	hasInstance: d('', Symbol('hasInstance')),
+	isConcatSpreadable: d('', Symbol('isConcatSpreadable')),
+	isRegExp: d('', Symbol('isRegExp')),
+	iterator: d('', Symbol('iterator')),
+	toPrimitive: d('', Symbol('toPrimitive')),
+	toStringTag: d('', Symbol('toStringTag')),
+	unscopables: d('', Symbol('unscopables'))
+});
+
+defineProperties(Symbol.prototype, {
+	properToString: d(function () {
+		return 'Symbol (' + this.__description__ + ')';
+	}),
+	toString: d('', function () { return this.__name__; })
+});
+Object.defineProperty(Symbol.prototype, Symbol.toPrimitive, d('',
+	function (hint) {
+		throw new TypeError("Conversion of symbol objects is not allowed");
+	}));
+Object.defineProperty(Symbol.prototype, Symbol.toStringTag, d('c', 'Symbol'));
+
+},{"d":31}],78:[function(require,module,exports){
 'use strict';
 
 var d        = require('d')
@@ -17298,7 +18596,7 @@ module.exports = exports = function (o) {
 };
 exports.methods = methods;
 
-},{"d":26,"es5-ext/object/valid-callable":52}],71:[function(require,module,exports){
+},{"d":31,"es5-ext/object/valid-callable":57}],79:[function(require,module,exports){
 'use strict';
 
 var clear          = require('es5-ext/array/#/clear')
@@ -17400,7 +18698,7 @@ Object.defineProperty(MapPoly.prototype, Symbol.iterator, d(function () {
 }));
 Object.defineProperty(MapPoly.prototype, Symbol.toStringTag, d('c', 'Map'));
 
-},{"./is-native-implemented":22,"./lib/iterator":24,"d":26,"es5-ext/array/#/clear":27,"es5-ext/array/#/e-index-of":28,"es5-ext/object/set-prototype-of":49,"es5-ext/object/valid-callable":52,"es5-ext/object/valid-value":53,"es6-iterator/for-of":59,"es6-iterator/valid-iterable":69,"es6-symbol":73,"event-emitter":70}],72:[function(require,module,exports){
+},{"./is-native-implemented":27,"./lib/iterator":29,"d":31,"es5-ext/array/#/clear":32,"es5-ext/array/#/e-index-of":33,"es5-ext/object/set-prototype-of":54,"es5-ext/object/valid-callable":57,"es5-ext/object/valid-value":58,"es6-iterator/for-of":64,"es6-iterator/valid-iterable":74,"es6-symbol":75,"event-emitter":78}],80:[function(require,module,exports){
 'use strict';
 
 if (!require('./is-implemented')()) {
@@ -17409,116 +18707,42 @@ if (!require('./is-implemented')()) {
 			writable: true });
 }
 
-},{"./is-implemented":74,"./polyfill":89,"es5-ext/global":76}],73:[function(require,module,exports){
-arguments[4][63][0].apply(exports,arguments)
-},{"./is-implemented":74,"./polyfill":89,"dup":63}],74:[function(require,module,exports){
-'use strict';
-
-module.exports = function () {
-	var symbol;
-	if (typeof Symbol !== 'function') return false;
-	symbol = Symbol('test symbol');
-	try { String(symbol); } catch (e) { return false; }
-	if (typeof Symbol.iterator === 'symbol') return true;
-
-	// Return 'true' for polyfills
-	if (typeof Symbol.isConcatSpreadable !== 'object') return false;
-	if (typeof Symbol.isRegExp !== 'object') return false;
-	if (typeof Symbol.iterator !== 'object') return false;
-	if (typeof Symbol.toPrimitive !== 'object') return false;
-	if (typeof Symbol.toStringTag !== 'object') return false;
-	if (typeof Symbol.unscopables !== 'object') return false;
-
-	return true;
-};
-
-},{}],75:[function(require,module,exports){
-arguments[4][26][0].apply(exports,arguments)
-},{"dup":26,"es5-ext/object/assign":77,"es5-ext/object/is-callable":80,"es5-ext/object/normalize-options":84,"es5-ext/string/#/contains":86}],76:[function(require,module,exports){
+},{"./is-implemented":81,"./polyfill":96,"es5-ext/global":83}],81:[function(require,module,exports){
+arguments[4][76][0].apply(exports,arguments)
+},{"dup":76}],82:[function(require,module,exports){
+arguments[4][31][0].apply(exports,arguments)
+},{"dup":31,"es5-ext/object/assign":84,"es5-ext/object/is-callable":87,"es5-ext/object/normalize-options":91,"es5-ext/string/#/contains":93}],83:[function(require,module,exports){
 'use strict';
 
 module.exports = new Function("return this")();
 
-},{}],77:[function(require,module,exports){
-arguments[4][35][0].apply(exports,arguments)
-},{"./is-implemented":78,"./shim":79,"dup":35}],78:[function(require,module,exports){
-arguments[4][36][0].apply(exports,arguments)
-},{"dup":36}],79:[function(require,module,exports){
-arguments[4][37][0].apply(exports,arguments)
-},{"../keys":81,"../valid-value":85,"dup":37}],80:[function(require,module,exports){
+},{}],84:[function(require,module,exports){
+arguments[4][40][0].apply(exports,arguments)
+},{"./is-implemented":85,"./shim":86,"dup":40}],85:[function(require,module,exports){
 arguments[4][41][0].apply(exports,arguments)
-},{"dup":41}],81:[function(require,module,exports){
-arguments[4][43][0].apply(exports,arguments)
-},{"./is-implemented":82,"./shim":83,"dup":43}],82:[function(require,module,exports){
-arguments[4][44][0].apply(exports,arguments)
-},{"dup":44}],83:[function(require,module,exports){
-arguments[4][45][0].apply(exports,arguments)
-},{"dup":45}],84:[function(require,module,exports){
-arguments[4][47][0].apply(exports,arguments)
-},{"dup":47}],85:[function(require,module,exports){
-arguments[4][53][0].apply(exports,arguments)
-},{"dup":53}],86:[function(require,module,exports){
-arguments[4][54][0].apply(exports,arguments)
-},{"./is-implemented":87,"./shim":88,"dup":54}],87:[function(require,module,exports){
-arguments[4][55][0].apply(exports,arguments)
-},{"dup":55}],88:[function(require,module,exports){
-arguments[4][56][0].apply(exports,arguments)
-},{"dup":56}],89:[function(require,module,exports){
-'use strict';
-
-var d = require('d')
-
-  , create = Object.create, defineProperties = Object.defineProperties
-  , generateName, Symbol;
-
-generateName = (function () {
-	var created = create(null);
-	return function (desc) {
-		var postfix = 0;
-		while (created[desc + (postfix || '')]) ++postfix;
-		desc += (postfix || '');
-		created[desc] = true;
-		return '@@' + desc;
-	};
-}());
-
-module.exports = Symbol = function (description) {
-	var symbol;
-	if (this instanceof Symbol) {
-		throw new TypeError('TypeError: Symbol is not a constructor');
-	}
-	symbol = create(Symbol.prototype);
-	description = (description === undefined ? '' : String(description));
-	return defineProperties(symbol, {
-		__description__: d('', description),
-		__name__: d('', generateName(description))
-	});
-};
-
-Object.defineProperties(Symbol, {
-	create: d('', Symbol('create')),
-	hasInstance: d('', Symbol('hasInstance')),
-	isConcatSpreadable: d('', Symbol('isConcatSpreadable')),
-	isRegExp: d('', Symbol('isRegExp')),
-	iterator: d('', Symbol('iterator')),
-	toPrimitive: d('', Symbol('toPrimitive')),
-	toStringTag: d('', Symbol('toStringTag')),
-	unscopables: d('', Symbol('unscopables'))
-});
-
-defineProperties(Symbol.prototype, {
-	properToString: d(function () {
-		return 'Symbol (' + this.__description__ + ')';
-	}),
-	toString: d('', function () { return this.__name__; })
-});
-Object.defineProperty(Symbol.prototype, Symbol.toPrimitive, d('',
-	function (hint) {
-		throw new TypeError("Conversion of symbol objects is not allowed");
-	}));
-Object.defineProperty(Symbol.prototype, Symbol.toStringTag, d('c', 'Symbol'));
-
-},{"d":75}],90:[function(require,module,exports){
+},{"dup":41}],86:[function(require,module,exports){
+arguments[4][42][0].apply(exports,arguments)
+},{"../keys":88,"../valid-value":92,"dup":42}],87:[function(require,module,exports){
+arguments[4][46][0].apply(exports,arguments)
+},{"dup":46}],88:[function(require,module,exports){
+arguments[4][48][0].apply(exports,arguments)
+},{"./is-implemented":89,"./shim":90,"dup":48}],89:[function(require,module,exports){
+arguments[4][49][0].apply(exports,arguments)
+},{"dup":49}],90:[function(require,module,exports){
+arguments[4][50][0].apply(exports,arguments)
+},{"dup":50}],91:[function(require,module,exports){
+arguments[4][52][0].apply(exports,arguments)
+},{"dup":52}],92:[function(require,module,exports){
+arguments[4][58][0].apply(exports,arguments)
+},{"dup":58}],93:[function(require,module,exports){
+arguments[4][59][0].apply(exports,arguments)
+},{"./is-implemented":94,"./shim":95,"dup":59}],94:[function(require,module,exports){
+arguments[4][60][0].apply(exports,arguments)
+},{"dup":60}],95:[function(require,module,exports){
+arguments[4][61][0].apply(exports,arguments)
+},{"dup":61}],96:[function(require,module,exports){
+arguments[4][77][0].apply(exports,arguments)
+},{"d":82,"dup":77}],97:[function(require,module,exports){
 "use strict";
 
 /* global module, define */
@@ -17707,7 +18931,7 @@ if(typeof exports === 'object' && module && module.exports)
 else if(typeof define === 'function' && define.amd)
   define(function() { return Multimap; });
 
-},{}],91:[function(require,module,exports){
+},{}],98:[function(require,module,exports){
 "use strict";
 
 var Shift = require("shift-ast");
@@ -17831,7 +19055,7 @@ function reduce(reducer, reducible) {
 }
 exports["default"] = reduce;
 
-},{"./monoidal-reducer":92,"shift-ast":93}],92:[function(require,module,exports){
+},{"./monoidal-reducer":99,"shift-ast":100}],99:[function(require,module,exports){
 "use strict";
 
 var MonoidalReducer = (function () {
@@ -18093,1076 +19317,6 @@ var MonoidalReducer = (function () {
 
 exports["default"] = MonoidalReducer;
 
-},{}],93:[function(require,module,exports){
-arguments[4][12][0].apply(exports,arguments)
-},{"dup":12}],94:[function(require,module,exports){
-"use strict";
-
-var Spec = require('./spec.js')["default"];
-var objectAssign = require('object-assign');
-
-var version = require('../package.json').version;
-
-
-// Loading uncached estraverse for changing estraverse.Syntax.
-var estraverse = require("estraverse").cloneEnvironment();
-
-// Adjust estraverse members.
-
-Object.keys(estraverse.Syntax).forEach(function (key) {
-  delete estraverse.Syntax[key];
-  delete estraverse.VisitorKeys[key];
-});
-
-objectAssign(estraverse.Syntax, Object.keys(Spec).reduce(function (result, key) {
-  result[key] = key;
-  return result;
-}, {}));
-
-objectAssign(estraverse.VisitorKeys, Spec);
-
-estraverse.version = version;
-module.exports = estraverse;
-
-/* vim: set sw=4 ts=4 et tw=80 : */
-
-},{"../package.json":98,"./spec.js":95,"estraverse":96,"object-assign":97}],95:[function(require,module,exports){
-"use strict";
-
-/*
-  Copyright (C) 2014 Yusuke Suzuki <utatane.tea@gmail.com>
-
-  Redistribution and use in source and binary forms, with or without
-  modification, are permitted provided that the following conditions are met:
-
-    * Redistributions of source code must retain the above copyright
-      notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright
-      notice, this list of conditions and the following disclaimer in the
-      documentation and/or other materials provided with the distribution.
-
-  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-  ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
-  DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-  (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
-  THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
-
-var SPEC = {
-  ArrayExpression: ["elements"],
-  AssignmentExpression: ["binding", "expression"],
-  BinaryExpression: ["left", "right"],
-  Block: ["statements"],
-  BlockStatement: ["block"],
-  BreakStatement: ["label"],
-  CallExpression: ["callee", "arguments"],
-  CatchClause: ["binding", "body"],
-  ComputedMemberExpression: ["object", "expression"],
-  ConditionalExpression: ["test", "consequent", "alternate"],
-  ContinueStatement: ["label"],
-  DataProperty: ["name", "expression"],
-  DebuggerStatement: [],
-  DoWhileStatement: ["body", "test"],
-  EmptyStatement: [],
-  ExpressionStatement: ["expression"],
-  ForInStatement: ["left", "right", "body"],
-  ForStatement: ["init", "test", "update", "body"],
-  FunctionBody: ["directives", "statements"],
-  FunctionDeclaration: ["name", "parameters", "body"],
-  FunctionExpression: ["name", "parameters", "body"],
-  Getter: ["name", "body"],
-  Identifier: [],
-  IdentifierExpression: ["identifier"],
-  IfStatement: ["test", "consequent", "alternate"],
-  LabeledStatement: ["label", "body"],
-  LiteralBooleanExpression: [],
-  LiteralNullExpression: [],
-  LiteralNumericExpression: [],
-  LiteralRegExpExpression: [],
-  LiteralStringExpression: [],
-  NewExpression: ["callee", "arguments"],
-  ObjectExpression: ["properties"],
-  PostfixExpression: ["operand"],
-  PrefixExpression: ["operand"],
-  PropertyName: [],
-  ReturnStatement: ["expression"],
-  Script: ["body"],
-  Setter: ["name", "parameter", "body"],
-  StaticMemberExpression: ["object", "property"],
-  SwitchCase: ["test", "consequent"],
-  SwitchDefault: ["consequent"],
-  SwitchStatement: ["discriminant", "cases"],
-  SwitchStatementWithDefault: ["discriminant", "preDefaultCases", "defaultCase", "postDefaultCases"],
-  ThisExpression: [],
-  ThrowStatement: ["expression"],
-  TryCatchStatement: ["body", "catchClause"],
-  TryFinallyStatement: ["body", "catchClause", "finalizer"],
-  UnknownDirective: [],
-  UseStrictDirective: [],
-  VariableDeclaration: ["declarators"],
-  VariableDeclarationStatement: ["declaration"],
-  VariableDeclarator: ["binding", "init"],
-  WhileStatement: ["test", "body"],
-  WithStatement: ["object", "body"] };
-
-exports["default"] = SPEC;
-
-},{}],96:[function(require,module,exports){
-/*
-  Copyright (C) 2012-2013 Yusuke Suzuki <utatane.tea@gmail.com>
-  Copyright (C) 2012 Ariya Hidayat <ariya.hidayat@gmail.com>
-
-  Redistribution and use in source and binary forms, with or without
-  modification, are permitted provided that the following conditions are met:
-
-    * Redistributions of source code must retain the above copyright
-      notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright
-      notice, this list of conditions and the following disclaimer in the
-      documentation and/or other materials provided with the distribution.
-
-  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-  ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
-  DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-  (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
-  THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
-/*jslint vars:false, bitwise:true*/
-/*jshint indent:4*/
-/*global exports:true, define:true*/
-(function (root, factory) {
-    'use strict';
-
-    // Universal Module Definition (UMD) to support AMD, CommonJS/Node.js,
-    // and plain browser loading,
-    if (typeof define === 'function' && define.amd) {
-        define(['exports'], factory);
-    } else if (typeof exports !== 'undefined') {
-        factory(exports);
-    } else {
-        factory((root.estraverse = {}));
-    }
-}(this, function clone(exports) {
-    'use strict';
-
-    var Syntax,
-        isArray,
-        VisitorOption,
-        VisitorKeys,
-        objectCreate,
-        objectKeys,
-        BREAK,
-        SKIP,
-        REMOVE;
-
-    function ignoreJSHintError() { }
-
-    isArray = Array.isArray;
-    if (!isArray) {
-        isArray = function isArray(array) {
-            return Object.prototype.toString.call(array) === '[object Array]';
-        };
-    }
-
-    function deepCopy(obj) {
-        var ret = {}, key, val;
-        for (key in obj) {
-            if (obj.hasOwnProperty(key)) {
-                val = obj[key];
-                if (typeof val === 'object' && val !== null) {
-                    ret[key] = deepCopy(val);
-                } else {
-                    ret[key] = val;
-                }
-            }
-        }
-        return ret;
-    }
-
-    function shallowCopy(obj) {
-        var ret = {}, key;
-        for (key in obj) {
-            if (obj.hasOwnProperty(key)) {
-                ret[key] = obj[key];
-            }
-        }
-        return ret;
-    }
-    ignoreJSHintError(shallowCopy);
-
-    // based on LLVM libc++ upper_bound / lower_bound
-    // MIT License
-
-    function upperBound(array, func) {
-        var diff, len, i, current;
-
-        len = array.length;
-        i = 0;
-
-        while (len) {
-            diff = len >>> 1;
-            current = i + diff;
-            if (func(array[current])) {
-                len = diff;
-            } else {
-                i = current + 1;
-                len -= diff + 1;
-            }
-        }
-        return i;
-    }
-
-    function lowerBound(array, func) {
-        var diff, len, i, current;
-
-        len = array.length;
-        i = 0;
-
-        while (len) {
-            diff = len >>> 1;
-            current = i + diff;
-            if (func(array[current])) {
-                i = current + 1;
-                len -= diff + 1;
-            } else {
-                len = diff;
-            }
-        }
-        return i;
-    }
-    ignoreJSHintError(lowerBound);
-
-    objectCreate = Object.create || (function () {
-        function F() { }
-
-        return function (o) {
-            F.prototype = o;
-            return new F();
-        };
-    })();
-
-    objectKeys = Object.keys || function (o) {
-        var keys = [], key;
-        for (key in o) {
-            keys.push(key);
-        }
-        return keys;
-    };
-
-    function extend(to, from) {
-        objectKeys(from).forEach(function (key) {
-            to[key] = from[key];
-        });
-        return to;
-    }
-
-    Syntax = {
-        AssignmentExpression: 'AssignmentExpression',
-        ArrayExpression: 'ArrayExpression',
-        ArrayPattern: 'ArrayPattern',
-        ArrowFunctionExpression: 'ArrowFunctionExpression',
-        AwaitExpression: 'AwaitExpression', // CAUTION: It's deferred to ES7.
-        BlockStatement: 'BlockStatement',
-        BinaryExpression: 'BinaryExpression',
-        BreakStatement: 'BreakStatement',
-        CallExpression: 'CallExpression',
-        CatchClause: 'CatchClause',
-        ClassBody: 'ClassBody',
-        ClassDeclaration: 'ClassDeclaration',
-        ClassExpression: 'ClassExpression',
-        ComprehensionBlock: 'ComprehensionBlock',  // CAUTION: It's deferred to ES7.
-        ComprehensionExpression: 'ComprehensionExpression',  // CAUTION: It's deferred to ES7.
-        ConditionalExpression: 'ConditionalExpression',
-        ContinueStatement: 'ContinueStatement',
-        DebuggerStatement: 'DebuggerStatement',
-        DirectiveStatement: 'DirectiveStatement',
-        DoWhileStatement: 'DoWhileStatement',
-        EmptyStatement: 'EmptyStatement',
-        ExportBatchSpecifier: 'ExportBatchSpecifier',
-        ExportDeclaration: 'ExportDeclaration',
-        ExportSpecifier: 'ExportSpecifier',
-        ExpressionStatement: 'ExpressionStatement',
-        ForStatement: 'ForStatement',
-        ForInStatement: 'ForInStatement',
-        ForOfStatement: 'ForOfStatement',
-        FunctionDeclaration: 'FunctionDeclaration',
-        FunctionExpression: 'FunctionExpression',
-        GeneratorExpression: 'GeneratorExpression',  // CAUTION: It's deferred to ES7.
-        Identifier: 'Identifier',
-        IfStatement: 'IfStatement',
-        ImportDeclaration: 'ImportDeclaration',
-        ImportDefaultSpecifier: 'ImportDefaultSpecifier',
-        ImportNamespaceSpecifier: 'ImportNamespaceSpecifier',
-        ImportSpecifier: 'ImportSpecifier',
-        Literal: 'Literal',
-        LabeledStatement: 'LabeledStatement',
-        LogicalExpression: 'LogicalExpression',
-        MemberExpression: 'MemberExpression',
-        MethodDefinition: 'MethodDefinition',
-        ModuleSpecifier: 'ModuleSpecifier',
-        NewExpression: 'NewExpression',
-        ObjectExpression: 'ObjectExpression',
-        ObjectPattern: 'ObjectPattern',
-        Program: 'Program',
-        Property: 'Property',
-        ReturnStatement: 'ReturnStatement',
-        SequenceExpression: 'SequenceExpression',
-        SpreadElement: 'SpreadElement',
-        SwitchStatement: 'SwitchStatement',
-        SwitchCase: 'SwitchCase',
-        TaggedTemplateExpression: 'TaggedTemplateExpression',
-        TemplateElement: 'TemplateElement',
-        TemplateLiteral: 'TemplateLiteral',
-        ThisExpression: 'ThisExpression',
-        ThrowStatement: 'ThrowStatement',
-        TryStatement: 'TryStatement',
-        UnaryExpression: 'UnaryExpression',
-        UpdateExpression: 'UpdateExpression',
-        VariableDeclaration: 'VariableDeclaration',
-        VariableDeclarator: 'VariableDeclarator',
-        WhileStatement: 'WhileStatement',
-        WithStatement: 'WithStatement',
-        YieldExpression: 'YieldExpression'
-    };
-
-    VisitorKeys = {
-        AssignmentExpression: ['left', 'right'],
-        ArrayExpression: ['elements'],
-        ArrayPattern: ['elements'],
-        ArrowFunctionExpression: ['params', 'defaults', 'rest', 'body'],
-        AwaitExpression: ['argument'], // CAUTION: It's deferred to ES7.
-        BlockStatement: ['body'],
-        BinaryExpression: ['left', 'right'],
-        BreakStatement: ['label'],
-        CallExpression: ['callee', 'arguments'],
-        CatchClause: ['param', 'body'],
-        ClassBody: ['body'],
-        ClassDeclaration: ['id', 'body', 'superClass'],
-        ClassExpression: ['id', 'body', 'superClass'],
-        ComprehensionBlock: ['left', 'right'],  // CAUTION: It's deferred to ES7.
-        ComprehensionExpression: ['blocks', 'filter', 'body'],  // CAUTION: It's deferred to ES7.
-        ConditionalExpression: ['test', 'consequent', 'alternate'],
-        ContinueStatement: ['label'],
-        DebuggerStatement: [],
-        DirectiveStatement: [],
-        DoWhileStatement: ['body', 'test'],
-        EmptyStatement: [],
-        ExportBatchSpecifier: [],
-        ExportDeclaration: ['declaration', 'specifiers', 'source'],
-        ExportSpecifier: ['id', 'name'],
-        ExpressionStatement: ['expression'],
-        ForStatement: ['init', 'test', 'update', 'body'],
-        ForInStatement: ['left', 'right', 'body'],
-        ForOfStatement: ['left', 'right', 'body'],
-        FunctionDeclaration: ['id', 'params', 'defaults', 'rest', 'body'],
-        FunctionExpression: ['id', 'params', 'defaults', 'rest', 'body'],
-        GeneratorExpression: ['blocks', 'filter', 'body'],  // CAUTION: It's deferred to ES7.
-        Identifier: [],
-        IfStatement: ['test', 'consequent', 'alternate'],
-        ImportDeclaration: ['specifiers', 'source'],
-        ImportDefaultSpecifier: ['id'],
-        ImportNamespaceSpecifier: ['id'],
-        ImportSpecifier: ['id', 'name'],
-        Literal: [],
-        LabeledStatement: ['label', 'body'],
-        LogicalExpression: ['left', 'right'],
-        MemberExpression: ['object', 'property'],
-        MethodDefinition: ['key', 'value'],
-        ModuleSpecifier: [],
-        NewExpression: ['callee', 'arguments'],
-        ObjectExpression: ['properties'],
-        ObjectPattern: ['properties'],
-        Program: ['body'],
-        Property: ['key', 'value'],
-        ReturnStatement: ['argument'],
-        SequenceExpression: ['expressions'],
-        SpreadElement: ['argument'],
-        SwitchStatement: ['discriminant', 'cases'],
-        SwitchCase: ['test', 'consequent'],
-        TaggedTemplateExpression: ['tag', 'quasi'],
-        TemplateElement: [],
-        TemplateLiteral: ['quasis', 'expressions'],
-        ThisExpression: [],
-        ThrowStatement: ['argument'],
-        TryStatement: ['block', 'handlers', 'handler', 'guardedHandlers', 'finalizer'],
-        UnaryExpression: ['argument'],
-        UpdateExpression: ['argument'],
-        VariableDeclaration: ['declarations'],
-        VariableDeclarator: ['id', 'init'],
-        WhileStatement: ['test', 'body'],
-        WithStatement: ['object', 'body'],
-        YieldExpression: ['argument']
-    };
-
-    // unique id
-    BREAK = {};
-    SKIP = {};
-    REMOVE = {};
-
-    VisitorOption = {
-        Break: BREAK,
-        Skip: SKIP,
-        Remove: REMOVE
-    };
-
-    function Reference(parent, key) {
-        this.parent = parent;
-        this.key = key;
-    }
-
-    Reference.prototype.replace = function replace(node) {
-        this.parent[this.key] = node;
-    };
-
-    Reference.prototype.remove = function remove() {
-        if (isArray(this.parent)) {
-            this.parent.splice(this.key, 1);
-            return true;
-        } else {
-            this.replace(null);
-            return false;
-        }
-    };
-
-    function Element(node, path, wrap, ref) {
-        this.node = node;
-        this.path = path;
-        this.wrap = wrap;
-        this.ref = ref;
-    }
-
-    function Controller() { }
-
-    // API:
-    // return property path array from root to current node
-    Controller.prototype.path = function path() {
-        var i, iz, j, jz, result, element;
-
-        function addToPath(result, path) {
-            if (isArray(path)) {
-                for (j = 0, jz = path.length; j < jz; ++j) {
-                    result.push(path[j]);
-                }
-            } else {
-                result.push(path);
-            }
-        }
-
-        // root node
-        if (!this.__current.path) {
-            return null;
-        }
-
-        // first node is sentinel, second node is root element
-        result = [];
-        for (i = 2, iz = this.__leavelist.length; i < iz; ++i) {
-            element = this.__leavelist[i];
-            addToPath(result, element.path);
-        }
-        addToPath(result, this.__current.path);
-        return result;
-    };
-
-    // API:
-    // return type of current node
-    Controller.prototype.type = function () {
-        var node = this.current();
-        return node.type || this.__current.wrap;
-    };
-
-    // API:
-    // return array of parent elements
-    Controller.prototype.parents = function parents() {
-        var i, iz, result;
-
-        // first node is sentinel
-        result = [];
-        for (i = 1, iz = this.__leavelist.length; i < iz; ++i) {
-            result.push(this.__leavelist[i].node);
-        }
-
-        return result;
-    };
-
-    // API:
-    // return current node
-    Controller.prototype.current = function current() {
-        return this.__current.node;
-    };
-
-    Controller.prototype.__execute = function __execute(callback, element) {
-        var previous, result;
-
-        result = undefined;
-
-        previous  = this.__current;
-        this.__current = element;
-        this.__state = null;
-        if (callback) {
-            result = callback.call(this, element.node, this.__leavelist[this.__leavelist.length - 1].node);
-        }
-        this.__current = previous;
-
-        return result;
-    };
-
-    // API:
-    // notify control skip / break
-    Controller.prototype.notify = function notify(flag) {
-        this.__state = flag;
-    };
-
-    // API:
-    // skip child nodes of current node
-    Controller.prototype.skip = function () {
-        this.notify(SKIP);
-    };
-
-    // API:
-    // break traversals
-    Controller.prototype['break'] = function () {
-        this.notify(BREAK);
-    };
-
-    // API:
-    // remove node
-    Controller.prototype.remove = function () {
-        this.notify(REMOVE);
-    };
-
-    Controller.prototype.__initialize = function(root, visitor) {
-        this.visitor = visitor;
-        this.root = root;
-        this.__worklist = [];
-        this.__leavelist = [];
-        this.__current = null;
-        this.__state = null;
-        this.__fallback = visitor.fallback === 'iteration';
-        this.__keys = VisitorKeys;
-        if (visitor.keys) {
-            this.__keys = extend(objectCreate(this.__keys), visitor.keys);
-        }
-    };
-
-    function isNode(node) {
-        if (node == null) {
-            return false;
-        }
-        return typeof node === 'object' && typeof node.type === 'string';
-    }
-
-    function isProperty(nodeType, key) {
-        return (nodeType === Syntax.ObjectExpression || nodeType === Syntax.ObjectPattern) && 'properties' === key;
-    }
-
-    Controller.prototype.traverse = function traverse(root, visitor) {
-        var worklist,
-            leavelist,
-            element,
-            node,
-            nodeType,
-            ret,
-            key,
-            current,
-            current2,
-            candidates,
-            candidate,
-            sentinel;
-
-        this.__initialize(root, visitor);
-
-        sentinel = {};
-
-        // reference
-        worklist = this.__worklist;
-        leavelist = this.__leavelist;
-
-        // initialize
-        worklist.push(new Element(root, null, null, null));
-        leavelist.push(new Element(null, null, null, null));
-
-        while (worklist.length) {
-            element = worklist.pop();
-
-            if (element === sentinel) {
-                element = leavelist.pop();
-
-                ret = this.__execute(visitor.leave, element);
-
-                if (this.__state === BREAK || ret === BREAK) {
-                    return;
-                }
-                continue;
-            }
-
-            if (element.node) {
-
-                ret = this.__execute(visitor.enter, element);
-
-                if (this.__state === BREAK || ret === BREAK) {
-                    return;
-                }
-
-                worklist.push(sentinel);
-                leavelist.push(element);
-
-                if (this.__state === SKIP || ret === SKIP) {
-                    continue;
-                }
-
-                node = element.node;
-                nodeType = element.wrap || node.type;
-                candidates = this.__keys[nodeType];
-                if (!candidates) {
-                    if (this.__fallback) {
-                        candidates = objectKeys(node);
-                    } else {
-                        throw new Error('Unknown node type ' + nodeType + '.');
-                    }
-                }
-
-                current = candidates.length;
-                while ((current -= 1) >= 0) {
-                    key = candidates[current];
-                    candidate = node[key];
-                    if (!candidate) {
-                        continue;
-                    }
-
-                    if (isArray(candidate)) {
-                        current2 = candidate.length;
-                        while ((current2 -= 1) >= 0) {
-                            if (!candidate[current2]) {
-                                continue;
-                            }
-                            if (isProperty(nodeType, candidates[current])) {
-                                element = new Element(candidate[current2], [key, current2], 'Property', null);
-                            } else if (isNode(candidate[current2])) {
-                                element = new Element(candidate[current2], [key, current2], null, null);
-                            } else {
-                                continue;
-                            }
-                            worklist.push(element);
-                        }
-                    } else if (isNode(candidate)) {
-                        worklist.push(new Element(candidate, key, null, null));
-                    }
-                }
-            }
-        }
-    };
-
-    Controller.prototype.replace = function replace(root, visitor) {
-        function removeElem(element) {
-            var i,
-                key,
-                nextElem,
-                parent;
-
-            if (element.ref.remove()) {
-                // When the reference is an element of an array.
-                key = element.ref.key;
-                parent = element.ref.parent;
-
-                // If removed from array, then decrease following items' keys.
-                i = worklist.length;
-                while (i--) {
-                    nextElem = worklist[i];
-                    if (nextElem.ref && nextElem.ref.parent === parent) {
-                        if  (nextElem.ref.key < key) {
-                            break;
-                        }
-                        --nextElem.ref.key;
-                    }
-                }
-            }
-        }
-
-        var worklist,
-            leavelist,
-            node,
-            nodeType,
-            target,
-            element,
-            current,
-            current2,
-            candidates,
-            candidate,
-            sentinel,
-            outer,
-            key;
-
-        this.__initialize(root, visitor);
-
-        sentinel = {};
-
-        // reference
-        worklist = this.__worklist;
-        leavelist = this.__leavelist;
-
-        // initialize
-        outer = {
-            root: root
-        };
-        element = new Element(root, null, null, new Reference(outer, 'root'));
-        worklist.push(element);
-        leavelist.push(element);
-
-        while (worklist.length) {
-            element = worklist.pop();
-
-            if (element === sentinel) {
-                element = leavelist.pop();
-
-                target = this.__execute(visitor.leave, element);
-
-                // node may be replaced with null,
-                // so distinguish between undefined and null in this place
-                if (target !== undefined && target !== BREAK && target !== SKIP && target !== REMOVE) {
-                    // replace
-                    element.ref.replace(target);
-                }
-
-                if (this.__state === REMOVE || target === REMOVE) {
-                    removeElem(element);
-                }
-
-                if (this.__state === BREAK || target === BREAK) {
-                    return outer.root;
-                }
-                continue;
-            }
-
-            target = this.__execute(visitor.enter, element);
-
-            // node may be replaced with null,
-            // so distinguish between undefined and null in this place
-            if (target !== undefined && target !== BREAK && target !== SKIP && target !== REMOVE) {
-                // replace
-                element.ref.replace(target);
-                element.node = target;
-            }
-
-            if (this.__state === REMOVE || target === REMOVE) {
-                removeElem(element);
-                element.node = null;
-            }
-
-            if (this.__state === BREAK || target === BREAK) {
-                return outer.root;
-            }
-
-            // node may be null
-            node = element.node;
-            if (!node) {
-                continue;
-            }
-
-            worklist.push(sentinel);
-            leavelist.push(element);
-
-            if (this.__state === SKIP || target === SKIP) {
-                continue;
-            }
-
-            nodeType = element.wrap || node.type;
-            candidates = this.__keys[nodeType];
-            if (!candidates) {
-                if (this.__fallback) {
-                    candidates = objectKeys(node);
-                } else {
-                    throw new Error('Unknown node type ' + nodeType + '.');
-                }
-            }
-
-            current = candidates.length;
-            while ((current -= 1) >= 0) {
-                key = candidates[current];
-                candidate = node[key];
-                if (!candidate) {
-                    continue;
-                }
-
-                if (isArray(candidate)) {
-                    current2 = candidate.length;
-                    while ((current2 -= 1) >= 0) {
-                        if (!candidate[current2]) {
-                            continue;
-                        }
-                        if (isProperty(nodeType, candidates[current])) {
-                            element = new Element(candidate[current2], [key, current2], 'Property', new Reference(candidate, current2));
-                        } else if (isNode(candidate[current2])) {
-                            element = new Element(candidate[current2], [key, current2], null, new Reference(candidate, current2));
-                        } else {
-                            continue;
-                        }
-                        worklist.push(element);
-                    }
-                } else if (isNode(candidate)) {
-                    worklist.push(new Element(candidate, key, null, new Reference(node, key)));
-                }
-            }
-        }
-
-        return outer.root;
-    };
-
-    function traverse(root, visitor) {
-        var controller = new Controller();
-        return controller.traverse(root, visitor);
-    }
-
-    function replace(root, visitor) {
-        var controller = new Controller();
-        return controller.replace(root, visitor);
-    }
-
-    function extendCommentRange(comment, tokens) {
-        var target;
-
-        target = upperBound(tokens, function search(token) {
-            return token.range[0] > comment.range[0];
-        });
-
-        comment.extendedRange = [comment.range[0], comment.range[1]];
-
-        if (target !== tokens.length) {
-            comment.extendedRange[1] = tokens[target].range[0];
-        }
-
-        target -= 1;
-        if (target >= 0) {
-            comment.extendedRange[0] = tokens[target].range[1];
-        }
-
-        return comment;
-    }
-
-    function attachComments(tree, providedComments, tokens) {
-        // At first, we should calculate extended comment ranges.
-        var comments = [], comment, len, i, cursor;
-
-        if (!tree.range) {
-            throw new Error('attachComments needs range information');
-        }
-
-        // tokens array is empty, we attach comments to tree as 'leadingComments'
-        if (!tokens.length) {
-            if (providedComments.length) {
-                for (i = 0, len = providedComments.length; i < len; i += 1) {
-                    comment = deepCopy(providedComments[i]);
-                    comment.extendedRange = [0, tree.range[0]];
-                    comments.push(comment);
-                }
-                tree.leadingComments = comments;
-            }
-            return tree;
-        }
-
-        for (i = 0, len = providedComments.length; i < len; i += 1) {
-            comments.push(extendCommentRange(deepCopy(providedComments[i]), tokens));
-        }
-
-        // This is based on John Freeman's implementation.
-        cursor = 0;
-        traverse(tree, {
-            enter: function (node) {
-                var comment;
-
-                while (cursor < comments.length) {
-                    comment = comments[cursor];
-                    if (comment.extendedRange[1] > node.range[0]) {
-                        break;
-                    }
-
-                    if (comment.extendedRange[1] === node.range[0]) {
-                        if (!node.leadingComments) {
-                            node.leadingComments = [];
-                        }
-                        node.leadingComments.push(comment);
-                        comments.splice(cursor, 1);
-                    } else {
-                        cursor += 1;
-                    }
-                }
-
-                // already out of owned node
-                if (cursor === comments.length) {
-                    return VisitorOption.Break;
-                }
-
-                if (comments[cursor].extendedRange[0] > node.range[1]) {
-                    return VisitorOption.Skip;
-                }
-            }
-        });
-
-        cursor = 0;
-        traverse(tree, {
-            leave: function (node) {
-                var comment;
-
-                while (cursor < comments.length) {
-                    comment = comments[cursor];
-                    if (node.range[1] < comment.extendedRange[0]) {
-                        break;
-                    }
-
-                    if (node.range[1] === comment.extendedRange[0]) {
-                        if (!node.trailingComments) {
-                            node.trailingComments = [];
-                        }
-                        node.trailingComments.push(comment);
-                        comments.splice(cursor, 1);
-                    } else {
-                        cursor += 1;
-                    }
-                }
-
-                // already out of owned node
-                if (cursor === comments.length) {
-                    return VisitorOption.Break;
-                }
-
-                if (comments[cursor].extendedRange[0] > node.range[1]) {
-                    return VisitorOption.Skip;
-                }
-            }
-        });
-
-        return tree;
-    }
-
-    exports.version = '1.8.1-dev';
-    exports.Syntax = Syntax;
-    exports.traverse = traverse;
-    exports.replace = replace;
-    exports.attachComments = attachComments;
-    exports.VisitorKeys = VisitorKeys;
-    exports.VisitorOption = VisitorOption;
-    exports.Controller = Controller;
-    exports.cloneEnvironment = function () { return clone({}); };
-
-    return exports;
-}));
-/* vim: set sw=4 ts=4 et tw=80 : */
-
-},{}],97:[function(require,module,exports){
-'use strict';
-
-function ToObject(val) {
-	if (val == null) {
-		throw new TypeError('Object.assign cannot be called with null or undefined');
-	}
-
-	return Object(val);
-}
-
-module.exports = Object.assign || function (target, source) {
-	var from;
-	var keys;
-	var to = ToObject(target);
-
-	for (var s = 1; s < arguments.length; s++) {
-		from = arguments[s];
-		keys = Object.keys(Object(from));
-
-		for (var i = 0; i < keys.length; i++) {
-			to[keys[i]] = from[keys[i]];
-		}
-	}
-
-	return to;
-};
-
-},{}],98:[function(require,module,exports){
-module.exports={
-  "name": "shift-traverse",
-  "version": "1.0.1",
-  "description": "traversal functionality for the Shift AST format",
-  "author": {
-    "name": "Yusuke SUZUKI"
-  },
-  "homepage": "https://github.com/Constellation/shift-traverse-js",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/Constellation/shift-traverse-js.git"
-  },
-  "main": "lib/index.js",
-  "maintainers": [
-    {
-      "name": "constellation",
-      "email": "utatane.tea@gmail.com"
-    }
-  ],
-  "files": [
-    "lib"
-  ],
-  "scripts": {
-    "test": "gulp test"
-  },
-  "dependencies": {
-    "estraverse": "^1.9.1",
-    "object-assign": "^2.0.0"
-  },
-  "devDependencies": {
-    "gulp": "^3.8.10",
-    "gulp-6to5": "^1.0.2",
-    "gulp-bump": "^0.1.11",
-    "gulp-espower": "^0.10.0",
-    "gulp-filter": "^2.0.0",
-    "gulp-git": "^0.5.5",
-    "gulp-mocha": "^2.0.0",
-    "gulp-sourcemaps": "^1.3.0",
-    "gulp-tag-version": "^1.2.1",
-    "power-assert": "^0.10.0",
-    "shift-ast": "^1.0.1",
-    "shift-codegen": "^1.0.0",
-    "shift-parser": "^1.0.0"
-  },
-  "keywords": [
-    "Shift",
-    "AST",
-    "traversal",
-    "abstract",
-    "syntax",
-    "tree"
-  ],
-  "bugs": {
-    "url": "https://github.com/Constellation/shift-traverse-js/issues"
-  },
-  "licenses": [
-    {
-      "type": "BSD",
-      "url": "http://github.com/Constellation/shift-traverse-js/raw/master/LICENSE.BSD"
-    }
-  ],
-  "gitHead": "19c83c795e429433d35b0faaa7f03dadc14990aa",
-  "_id": "shift-traverse@1.0.1",
-  "_shasum": "c8b96c27e865464598523eee2c3ae4fc9f67db58",
-  "_from": "shift-traverse@*",
-  "_npmVersion": "2.0.0-alpha-5",
-  "_npmUser": {
-    "name": "constellation",
-    "email": "utatane.tea@gmail.com"
-  },
-  "dist": {
-    "shasum": "c8b96c27e865464598523eee2c3ae4fc9f67db58",
-    "tarball": "http://registry.npmjs.org/shift-traverse/-/shift-traverse-1.0.1.tgz"
-  },
-  "directories": {},
-  "_resolved": "https://registry.npmjs.org/shift-traverse/-/shift-traverse-1.0.1.tgz",
-  "readme": "ERROR: No README data found!"
-}
-
-},{}]},{},[1]);
+},{}],100:[function(require,module,exports){
+arguments[4][17][0].apply(exports,arguments)
+},{"dup":17}]},{},[1]);
