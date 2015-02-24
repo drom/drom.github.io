@@ -137,6 +137,18 @@ function dfg (scope) {
                     }
                     break;
 
+                case trav.Syntax.PrefixExpression:
+                    node.depend = [node.name];
+                    depend = node.operand.depend;
+                    scope.dfg.from[node.name] = depend;
+                    if (depend) {
+                        depend.forEach(function (e) {
+                            scope.dfg.to[e] = scope.dfg.to[e] || [];
+                            scope.dfg.to[e].push(node.name);
+                        });
+                    }
+                    break;
+
                 case trav.Syntax.BinaryExpression:
                     node.depend = [node.name];
                     depend = node.left.depend.concat(node.right.depend);
@@ -159,6 +171,19 @@ function dfg (scope) {
                         });
                     }
                     // scope.dfg.edge.a = [];
+                    break;
+
+                case trav.Syntax.VariableDeclarator:
+                    if (node.init) {
+                        depend = node.init.depend;
+                        scope.dfg.from[node.binding.name] = depend;
+                        if (depend) {
+                            depend.forEach(function (e) {
+                                scope.dfg.to[e] = scope.dfg.to[e] || [];
+                                scope.dfg.to[e].push(node.binding.name);
+                            });
+                        }
+                    }
                     break;
 
                 case trav.Syntax.ReturnStatement:
@@ -206,13 +231,17 @@ function peephole (newString) {
 
     // single optimization pass
     function step (str) {
-        var f, op2, op2c;
+        var f, op1, op2, op2c;
 
+        op1 = '(invert)';
         op2 = '(and|or|xor|lshift|rshift|\\+|\\-|\\*|/|=|<|>|<=|>=)';
         op2c = '(and|or|xor|\\+|\\*|=)'; // commutative
 
         f = str.match('(.*)0 pick nip(.*)');
         if (f) { return f[1] + f[2]; }
+
+        f = str.match('(.*)0 pick ' + op1 + ' nip(.*)');
+        if (f) { return f[1] + f[2] + f[3]; }
 
         f = str.match('(.*)1 pick ' + op2 + ' nip(.*)');
         if (f) { return f[1] + 'swap ' + f[2] + f[3]; }
@@ -238,11 +267,15 @@ function peephole (newString) {
         f = str.match('(.*)swap ' + op2c + '(.*)');
         if (f) { return f[1] + f[2] + f[3]; }
 
+        // f = str.match('(.*)0 pick(.*)');
+        // if (f) { return '' + f[1] + 'dup' + f[2]; }
+
         return false; // string can't be optimized
     }
 
     var oldString;
 
+    // newString = newString.replace(/( )+/g, ' ');
     do {
         oldString = newString;
         newString = step(oldString);
@@ -289,6 +322,7 @@ function insertForth (scope, dfg, options) {
 
         // all cleaning oprations on the top of stack
         e = stack[stack.length - 1][1];
+        if(e === undefined) { console.log(JSON.stringify(stack)); }
         if (e.length === 0) {
             // droping useless element
             stack.pop();
@@ -409,6 +443,7 @@ function insertForth (scope, dfg, options) {
                 // forth = cleanStack(forth);
                 stream += forth + stackStatus(forth);
                 break;
+
             case trav.Syntax.IdentifierExpression:
                 if (tail !== 'binding') { // not assigned value
                     if (
@@ -426,6 +461,7 @@ function insertForth (scope, dfg, options) {
                     stream += forth + stackStatus(forth);
                 }
                 break;
+
             case trav.Syntax.BinaryExpression:
                 stack.pop();
                 stack.pop();
@@ -433,28 +469,43 @@ function insertForth (scope, dfg, options) {
 
                 forth = forthOperators(node.operator);
                 forth = cleanStack(forth);
-                // forth = peephole(forth);
                 stream += forth + stackStatus(forth);
                 break;
-            case trav.Syntax.AssignmentExpression:
-                // node.forth
-                //     = node.expression.forth
-                //     + node.binding.forth;
 
+            case trav.Syntax.PrefixExpression:
+                stack.pop();
+                stack.push([node.name, dfg.to[node.name] || []]);
+
+                forth = forthOperators(node.operator);
+                forth = cleanStack(forth);
+                stream += forth + stackStatus(forth);
+                break;
+
+            case trav.Syntax.VariableDeclarator:
+                if (node.init) {
+                    stack.pop();
+                    stack.push([node.binding.name, dfg.to[node.binding.name] || []]);
+                    forth = cleanStack();
+                    stream += forth + stackStatus(forth);
+                }
+                break;
+
+            case trav.Syntax.AssignmentExpression:
                 if (scope.variableList.some(function (e) {
                     return e.name === node.binding.identifier.name;
                 })) { // local
                     forth = '';
                     stack.pop();
-                    stack.push([node.binding.identifier.name, dfg.to[node.binding.identifier.name]]);
+                    stack.push([node.binding.identifier.name, dfg.to[node.binding.identifier.name] || []]);
                 } else { // global
-                    forth = node.binding.name + ' !';
+                    forth = node.binding.identifier.name + ' !';
                     stack.pop();
                 }
                 // forth = peephole(forth);
                 forth = cleanStack(forth);
                 stream += forth + stackStatus(forth);
                 break;
+
             case trav.Syntax.IfStatement:
         //         if (node.alternate && node.alternate.forth) {
         //             node.forth
@@ -606,6 +657,8 @@ module.exports = function (tree) {
 
                 case trav.Syntax.BinaryExpression:
                 case trav.Syntax.ReturnStatement:
+                case trav.Syntax.VariableDeclarator:
+                case trav.Syntax.PrefixExpression:
                 // case trav.Syntax.AssignmentExpression:
                 case trav.Syntax.IdentifierExpression:
                 case trav.Syntax.LiteralNumericExpression:
