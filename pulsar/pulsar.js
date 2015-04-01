@@ -364,14 +364,82 @@ function theCIC (taps) {
     };
 }
 
+function dft (inpReal, inpImag) {
+    var N,
+        k,
+        n,
+        angle,
+        outReal = [],
+        outImag = [],
+        sumReal,
+        sumImag,
+        nn,
+        sin = [],
+        cos = [],
+        twoPiByN;
+
+    N = inpReal.length;
+    twoPiByN = Math.PI / N * 2;
+
+    /* initialize Sin / Cos tables */
+    for (k = 0; k < N; k++) {
+        angle = twoPiByN * k;
+        sin.push(Math.sin(angle));
+        cos.push(Math.cos(angle));
+    }
+
+    for (k = 0; k < N; k++) {
+        sumReal = 0;
+        sumImag = 0;
+        nn = 0;
+        for (n = 0; n < N; n++) {
+            sumReal +=  inpReal[n] * cos[nn] + inpImag[n] * sin[nn];
+            sumImag += -inpReal[n] * sin[nn] + inpImag[n] * cos[nn];
+            nn = (nn + k) % N;
+        }
+        outReal.push(sumReal);
+        outImag.push(sumImag);
+    }
+    return [outReal, outImag];
+}
+
+function spectrum (arr, arr2) {
+    var tmp,
+        res = [],
+        real = [],
+        imag = [];
+    if (arr2) {
+        arr.forEach(function (e, i) {
+            real.push(e.y);
+            imag.push(arr2[i].y);
+        });
+    } else {
+        arr.forEach(function (e) {
+            real.push(e.y);
+            imag.push(0);
+        });
+    }
+    tmp = dft(real, imag);
+    tmp[0].forEach(function (e, i) {
+        res.push({x: i, y: Math.pow(tmp[0][i], 2) + Math.pow(tmp[1][i], 2) });
+    });
+    return res;
+}
+
 var s0 = mydata();
 plot(s0, 's0');
+
+var f0 = spectrum(s0);
+plot(f0, 'f0');
 
 var s1I = funct(s0, math.sin);
 plot(s1I, 's1I');
 
 var s1Q = funct(s0, math.cos);
 plot(s1Q, 's1Q');
+
+var f1 = spectrum(s1I, s1Q);
+plot(f1, 'f1');
 
 var cicI = theCIC(25);
 var s2I = funct1(s1I, cicI);
