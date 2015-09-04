@@ -5,24 +5,45 @@
   <title>DROM</title>
   <style type="text/css">
   html, body {
-    background: #ede7d5ff;
+    background: #ede7d5;
     height: 100%;
-
+    margin: 0;
   }
   .content {
     height: 100%;
-    vertical-align: middle;
+    margin: 0;
   }
   .logo {
-    height: 100%;
-    background-repeat: no-repeat;
-    background-image: url(img/logo.min.svg);
-    background-position: center;
+    display: block;
+    margin: auto;
+    top: 50%;
+    position: relative;
+    transform: translateY(-50%);
+    stroke-width: 2px;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .letter {
+    fill: #fff;
+  }
+  .letter:hover {
+    fill: #d6ca97;
+    stroke: #a45a22;
+  }
+  .border {
+    stroke: #f6c49d;
   }
 </style>
 </head>
 <body>
-<div class="content"><div class="logo"></div></dev>
+<div class="content">
+<svg class="logo" xmlns="http://www.w3.org/2000/svg" width="374" height="416" version="1">
+<path class="border" d="M187 4l173 100v200L187 404 14 304V104z" fill="none"/>
+<path class="letter" d="M83 96l-41 24v96l41-24 14-24v-64zm-14 24l14 8v32l-14 24-14 8v-64zm0 0v32l14 8m-55-48l41-24 14 8m-14 88l-14-8 14-24m-27-32l-14-8v96l14 8"/>
+<path class="letter" d="M166 128l-41 24v96l14-8v-32l13-8 14 8v16l14-8v-16l-14-8 14-24v-32zm-14 24l14 8-14 24-13 8v-32zm0 48v16l14 8m-55-80l41-24 14 8m-14 56l-13-8 13-24m-27 0l-14-8v96l14 8"/>
+<path class="letter" d="M249 176l-27 16-14 24v64l14 8 27-16 14-24v-64zm-13 24l13 8v32l-13 24-14-8v-32zm0 0v32l13 8m-41-56l28-16 13 8m-27 80l14-24 13 8m-55-32v64l14 8m0-64l-14-8 14-24 14 8"/>
+<path class="letter" d="M291 328v-96l14-8 14 8 14-24 13-8v96l-13 8v-64l-14 24-14-8v64zm28-64v32l14 8m-14-104l14-8 13 8m-55 32l-14-8 14-8 14 8m0 0l14-24 14 8m-56 16v96l14 8"/></svg>
+</dev>
 <script>
   (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
   (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
