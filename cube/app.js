@@ -423,18 +423,22 @@ Object.keys(moves).forEach(function (e) {
             if (dir === 1) {
                 if (scale < 0.9) {
                     scale += 0.1;
+                } else {
+                    scale = 1;
                 }
             } else {
                 if (scale > 0.1) {
                     scale -= 0.1;
+                } else {
+                    scale = 0;
                 }
             }
             // el.setAttribute('transform', 'translate(' + origin[1] + ',' + origin[2] + ')');
             el.setAttribute(
                 'transform', 'translate(' +
-                (Number(origin[1]) + (1 - scale * delta[0])) +
+                (Number(origin[1]) - scale * delta[0]) +
                 ',' +
-                (Number(origin[2]) + (1 - scale * delta[1])) +
+                (Number(origin[2]) - scale * delta[1]) +
                 ')'
             );
         }, 100);
