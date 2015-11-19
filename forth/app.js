@@ -4860,79 +4860,6 @@ function base64DetectIncompleteChar(buffer) {
 }
 
 },{"buffer":2}],27:[function(require,module,exports){
-(function () {
-    'use strict';
-
-    var forth = require('forth');
-
-    var inp, oup, cmForth, cmJavaSCript, comments, f, myTimeOut;
-
-    function refresh () {
-        var time = Date.now();
-        var source = cmForth.getValue();
-        var consolebuffer = '';
-        f = forth();
-        f.s.write(source);
-        f.s.on('data', function (chunk) {
-            consolebuffer += chunk;
-            cmJavaSCript.setValue(consolebuffer);
-        });
-        console.log((Date.now() - time) + 'ms');
-        localStorage.forthSourceCode = source;
-    }
-
-    comments = true;
-    inp = document.getElementById('inp');
-    oup = document.getElementById('oup');
-
-    inp.value = localStorage.forthSourceCode || ': foo 1 2 + ;';
-    oup.value = '?';
-
-    document.getElementById('button').addEventListener('click', function () {
-        comments = !comments;
-        refresh();
-    });
-
-    cmForth = CodeMirror.fromTextArea(
-        inp,
-        {
-            mode: 'forth',
-            theme: 'colorforth',
-            lineNumbers: true,
-            lineWrapping: true,
-            indentUnit: 2,
-            tabSize: 2,
-            autofocus: false
-        }
-    );
-
-    cmJavaSCript = CodeMirror.fromTextArea(
-        oup,
-        {
-            mode: 'javascript',
-            lineNumbers: true,
-            indentUnit: 2,
-            tabSize: 2,
-            matchBrackets: true,
-            autoCloseBrackets: true,
-            highlightSelectionMatche: true,
-            autofocus: true
-        }
-    );
-
-
-    cmForth.on('change', function () {
-        clearTimeout(myTimeOut);
-        myTimeOut = setTimeout(refresh, 750);
-    });
-
-    refresh();
-})();
-
-/* global console, CodeMirror */
-/* env browser */
-
-},{"forth":33}],28:[function(require,module,exports){
 'use strict';
 
 var estraverse = require('estraverse');
@@ -5113,7 +5040,7 @@ module.exports = {
     program: program
 };
 
-},{"estraverse":105}],29:[function(require,module,exports){
+},{"estraverse":104}],28:[function(require,module,exports){
 'use strict';
 
 var def = require('./def'),
@@ -5760,6 +5687,203 @@ function main (cxt) {
         this.label++;
     }, cxt, { immediate: true });
 
+    def('?do', function () {
+        var oldpos;
+        oldpos = this.pos;
+        this.cfs.push(oldpos);
+        this.pos = [];
+        oldpos.push({
+            type: Syntax.ExpressionStatement,
+            expression: {
+                type: Syntax.CallExpression,
+                callee: {
+                    type: Syntax.MemberExpression,
+                    computed: false,
+                    object: {
+                        type: Syntax.ThisExpression
+                    },
+                    property: {
+                        type: Syntax.Identifier,
+                        name: 'rpush'
+                    }
+                },
+                arguments: [
+                    {
+                        type: Syntax.CallExpression,
+                        callee: {
+                            type: Syntax.MemberExpression,
+                            computed: false,
+                            object: {
+                                type: Syntax.ThisExpression
+                            },
+                            property: {
+                                type: Syntax.Identifier,
+                                name: 'dnext'
+                            }
+                        },
+                        arguments: []
+                    }
+                ]
+            }
+        }); // limit
+        oldpos.push({
+            type: Syntax.ExpressionStatement,
+            expression: {
+                type: Syntax.CallExpression,
+                callee: {
+                    type: Syntax.MemberExpression,
+                    computed: false,
+                    object: {
+                        type: Syntax.ThisExpression
+                    },
+                    property: {
+                        type: Syntax.Identifier,
+                        name: 'rpush'
+                    }
+                },
+                arguments: [
+                    {
+                        type: Syntax.CallExpression,
+                        callee: {
+                            type: Syntax.MemberExpression,
+                            computed: false,
+                            object: {
+                                type: Syntax.ThisExpression
+                            },
+                            property: {
+                                type: Syntax.Identifier,
+                                name: 'dpop'
+                            }
+                        },
+                        arguments: []
+                    }
+                ]
+            }
+        });
+        oldpos.push({
+            type: Syntax.ExpressionStatement,
+            expression: {
+                type: Syntax.CallExpression,
+                callee: {
+                    type: Syntax.MemberExpression,
+                    computed: false,
+                    object: {
+                        type: Syntax.ThisExpression
+                    },
+                    property: {
+                        type: Syntax.Identifier,
+                        name: 'dpop'
+                    }
+                },
+                arguments: []
+            }
+        });
+        oldpos.push({
+            type: Syntax.LabeledStatement,
+            label: {
+                type: Syntax.Identifier,
+                name: 'L' + this.label
+            },
+            body: {
+                type: Syntax.DoWhileStatement,
+                body: {
+                    type: Syntax.BlockStatement,
+                    body: this.pos
+                },
+                test: {
+                    type: Syntax.Literal,
+                    value: true,
+                    raw: 'true'
+                }
+            }
+        });
+        this.pos.push({
+            type: Syntax.IfStatement,
+            test: {
+                type: Syntax.BinaryExpression,
+                operator: '===',
+                left: {
+                    type: Syntax.CallExpression,
+                    callee: {
+                        type: Syntax.MemberExpression,
+                        computed: false,
+                        object: {
+                            type: Syntax.ThisExpression
+                        },
+                        property: {
+                            type: Syntax.Identifier,
+                            name: 'rtop'
+                        }
+                    },
+                    arguments: []
+                },
+                right: {
+                    type: Syntax.CallExpression,
+                    callee: {
+                        type: Syntax.MemberExpression,
+                        computed: false,
+                        object: {
+                            type: Syntax.ThisExpression
+                        },
+                        property: {
+                            type: Syntax.Identifier,
+                            name: 'rnext'
+                        }
+                    },
+                    arguments: []
+                }
+            },
+            consequent: {
+                type: Syntax.BlockStatement,
+                body: [
+                    {
+                        type: Syntax.ExpressionStatement,
+                        expression: {
+                            type: Syntax.CallExpression,
+                            callee: {
+                                type: Syntax.MemberExpression,
+                                computed: false,
+                                object: {
+                                    type: Syntax.ThisExpression
+                                },
+                                property: {
+                                    type: Syntax.Identifier,
+                                    name: 'rpop'
+                                }
+                            },
+                            arguments: []
+                        }
+                    },
+                    {
+                        type: Syntax.ExpressionStatement,
+                        expression: {
+                            type: Syntax.CallExpression,
+                            callee: {
+                                type: Syntax.MemberExpression,
+                                computed: false,
+                                object: {
+                                    type: Syntax.ThisExpression
+                                },
+                                property: {
+                                    type: Syntax.Identifier,
+                                    name: 'rpop'
+                                }
+                            },
+                            arguments: []
+                        }
+                    },
+                    {
+                        type: Syntax.BreakStatement,
+                        label: null
+                    }
+                ]
+            },
+            alternate: null
+        });
+        this.label++;
+    }, cxt, { immediate: true });
+
+
     def('loop', function () {
         this.pos.push({
             type: Syntax.ExpressionStatement,
@@ -5970,6 +6094,46 @@ function main (cxt) {
     }, cxt, { immediate: true });
 
     def('leave', function () {
+        this.pos.push({
+            type: Syntax.ExpressionStatement,
+            expression: {
+                type: Syntax.CallExpression,
+                callee: {
+                    type: Syntax.MemberExpression,
+                    computed: false,
+                    object: {
+                        type: Syntax.ThisExpression
+                    },
+                    property: {
+                        type: Syntax.Identifier,
+                        name: 'rpop'
+                    }
+                },
+                arguments: []
+            }
+        });
+        this.pos.push({
+            type: Syntax.ExpressionStatement,
+            expression: {
+                type: Syntax.CallExpression,
+                callee: {
+                    type: Syntax.MemberExpression,
+                    computed: false,
+                    object: {
+                        type: Syntax.ThisExpression
+                    },
+                    property: {
+                        type: Syntax.Identifier,
+                        name: 'rpop'
+                    }
+                },
+                arguments: []
+            }
+        });
+        this.pos.push({
+            type: Syntax.BreakStatement,
+            label: null
+        });
     }, cxt, { immediate: true });
 
     def('i', function () {
@@ -6068,7 +6232,7 @@ function main (cxt) {
 
 module.exports = main;
 
-},{"./ast":28,"./def":32,"estraverse":105}],30:[function(require,module,exports){
+},{"./ast":27,"./def":31,"estraverse":104}],29:[function(require,module,exports){
 'use strict';
 
 var def = require('./def'),
@@ -6151,7 +6315,7 @@ function core (cxt) {
 
 module.exports = core;
 
-},{"./def":32,"chai":38,"colors/safe":83}],31:[function(require,module,exports){
+},{"./def":31,"chai":37,"colors/safe":82}],30:[function(require,module,exports){
 'use strict';
 
 var colors = require('colors/safe'),
@@ -6272,7 +6436,7 @@ def('end-code', function () {
 
 module.exports = main;
 
-},{"./def":32,"colors/safe":83}],32:[function(require,module,exports){
+},{"./def":31,"colors/safe":82}],31:[function(require,module,exports){
 'use strict';
 
 var parse = require('esprima').parse,
@@ -6346,7 +6510,7 @@ function def (name, fn, cxt, attr) {
 
 module.exports = def;
 
-},{"escodegen":84,"esprima":104,"estraverse":105}],33:[function(require,module,exports){
+},{"escodegen":83,"esprima":103,"estraverse":104}],32:[function(require,module,exports){
 'use strict';
 
 var stream = require('stream'),
@@ -6379,7 +6543,7 @@ function forth () {
 
 module.exports = forth;
 
-},{"../package.json":107,"./cfg":29,"./core":30,"./create":31,"./interpret":34,"./memory":35,"./stack":36,"stream":25}],34:[function(require,module,exports){
+},{"../package.json":106,"./cfg":28,"./core":29,"./create":30,"./interpret":33,"./memory":34,"./stack":35,"stream":25}],33:[function(require,module,exports){
 (function (Buffer){
 'use strict';
 
@@ -6413,7 +6577,7 @@ function interpret (str, done) {
                     this[wordLink.index]();
                 } else {
                    this.pos.push(ast.callword(wordLink.index));
-               }
+                }
             } else {
                 num = parseInt(w, this.base);
                 if (Number.isNaN(num)) {
@@ -6472,7 +6636,7 @@ function main (cxt) {
 module.exports = main;
 
 }).call(this,require("buffer").Buffer)
-},{"./ast":28,"./word":37,"buffer":2,"colors/safe":83}],35:[function(require,module,exports){
+},{"./ast":27,"./word":36,"buffer":2,"colors/safe":82}],34:[function(require,module,exports){
 'use strict';
 
 // memory load/store words
@@ -6538,7 +6702,7 @@ function main (cxt) {
 
 module.exports = main;
 
-},{"./def":32}],36:[function(require,module,exports){
+},{"./def":31}],35:[function(require,module,exports){
 'use strict';
 
 // stack-only words; using only .dpop .dpush
@@ -6780,7 +6944,7 @@ function stack (cxt) {
 
 module.exports = stack;
 
-},{"./def":32}],37:[function(require,module,exports){
+},{"./def":31}],36:[function(require,module,exports){
 'use strict';
 
 function ArrayBuffer2string (ar) {
@@ -6977,10 +7141,10 @@ module.exports = {
     arr: arr
 };
 
-},{}],38:[function(require,module,exports){
+},{}],37:[function(require,module,exports){
 module.exports = require('./lib/chai');
 
-},{"./lib/chai":39}],39:[function(require,module,exports){
+},{"./lib/chai":38}],38:[function(require,module,exports){
 /*!
  * chai
  * Copyright(c) 2011-2014 Jake Luer <jake@alogicalparadox.com>
@@ -7075,7 +7239,7 @@ exports.use(should);
 var assert = require('./chai/interface/assert');
 exports.use(assert);
 
-},{"./chai/assertion":40,"./chai/config":41,"./chai/core/assertions":42,"./chai/interface/assert":43,"./chai/interface/expect":44,"./chai/interface/should":45,"./chai/utils":59,"assertion-error":67}],40:[function(require,module,exports){
+},{"./chai/assertion":39,"./chai/config":40,"./chai/core/assertions":41,"./chai/interface/assert":42,"./chai/interface/expect":43,"./chai/interface/should":44,"./chai/utils":58,"assertion-error":66}],39:[function(require,module,exports){
 /*!
  * chai
  * http://chaijs.com
@@ -7208,7 +7372,7 @@ module.exports = function (_chai, util) {
   });
 };
 
-},{"./config":41}],41:[function(require,module,exports){
+},{"./config":40}],40:[function(require,module,exports){
 module.exports = {
 
   /**
@@ -7265,7 +7429,7 @@ module.exports = {
 
 };
 
-},{}],42:[function(require,module,exports){
+},{}],41:[function(require,module,exports){
 /*!
  * chai
  * http://chaijs.com
@@ -9082,7 +9246,7 @@ module.exports = function (chai, _) {
   });
 };
 
-},{}],43:[function(require,module,exports){
+},{}],42:[function(require,module,exports){
 /*!
  * chai
  * Copyright(c) 2011-2014 Jake Luer <jake@alogicalparadox.com>
@@ -10633,7 +10797,7 @@ module.exports = function (chai, util) {
   ('isNotFrozen', 'notFrozen');
 };
 
-},{}],44:[function(require,module,exports){
+},{}],43:[function(require,module,exports){
 /*!
  * chai
  * Copyright(c) 2011-2014 Jake Luer <jake@alogicalparadox.com>
@@ -10668,7 +10832,7 @@ module.exports = function (chai, util) {
   };
 };
 
-},{}],45:[function(require,module,exports){
+},{}],44:[function(require,module,exports){
 /*!
  * chai
  * Copyright(c) 2011-2014 Jake Luer <jake@alogicalparadox.com>
@@ -10768,7 +10932,7 @@ module.exports = function (chai, util) {
   chai.Should = loadShould;
 };
 
-},{}],46:[function(require,module,exports){
+},{}],45:[function(require,module,exports){
 /*!
  * Chai - addChainingMethod utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -10881,7 +11045,7 @@ module.exports = function (ctx, name, method, chainingBehavior) {
   });
 };
 
-},{"../config":41,"./flag":50,"./transferFlags":66}],47:[function(require,module,exports){
+},{"../config":40,"./flag":49,"./transferFlags":65}],46:[function(require,module,exports){
 /*!
  * Chai - addMethod utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -10926,7 +11090,7 @@ module.exports = function (ctx, name, method) {
   };
 };
 
-},{"../config":41,"./flag":50}],48:[function(require,module,exports){
+},{"../config":40,"./flag":49}],47:[function(require,module,exports){
 /*!
  * Chai - addProperty utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -10975,7 +11139,7 @@ module.exports = function (ctx, name, getter) {
   });
 };
 
-},{"../config":41,"./flag":50}],49:[function(require,module,exports){
+},{"../config":40,"./flag":49}],48:[function(require,module,exports){
 /*!
  * Chai - expectTypes utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11018,7 +11182,7 @@ module.exports = function (obj, types) {
   }
 };
 
-},{"./flag":50,"assertion-error":67,"type-detect":72}],50:[function(require,module,exports){
+},{"./flag":49,"assertion-error":66,"type-detect":71}],49:[function(require,module,exports){
 /*!
  * Chai - flag utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11052,7 +11216,7 @@ module.exports = function (obj, key, value) {
   }
 };
 
-},{}],51:[function(require,module,exports){
+},{}],50:[function(require,module,exports){
 /*!
  * Chai - getActual utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11072,7 +11236,7 @@ module.exports = function (obj, args) {
   return args.length > 4 ? args[4] : obj._obj;
 };
 
-},{}],52:[function(require,module,exports){
+},{}],51:[function(require,module,exports){
 /*!
  * Chai - getEnumerableProperties utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11099,7 +11263,7 @@ module.exports = function getEnumerableProperties(object) {
   return result;
 };
 
-},{}],53:[function(require,module,exports){
+},{}],52:[function(require,module,exports){
 /*!
  * Chai - message composition utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11151,7 +11315,7 @@ module.exports = function (obj, args) {
   return flagMsg ? flagMsg + ': ' + msg : msg;
 };
 
-},{"./flag":50,"./getActual":51,"./inspect":60,"./objDisplay":61}],54:[function(require,module,exports){
+},{"./flag":49,"./getActual":50,"./inspect":59,"./objDisplay":60}],53:[function(require,module,exports){
 /*!
  * Chai - getName utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11173,7 +11337,7 @@ module.exports = function (func) {
   return match && match[1] ? match[1] : "";
 };
 
-},{}],55:[function(require,module,exports){
+},{}],54:[function(require,module,exports){
 /*!
  * Chai - getPathInfo utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11285,7 +11449,7 @@ function _getPathValue (parsed, obj, index) {
   return res;
 }
 
-},{"./hasProperty":58}],56:[function(require,module,exports){
+},{"./hasProperty":57}],55:[function(require,module,exports){
 /*!
  * Chai - getPathValue utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11329,7 +11493,7 @@ module.exports = function(path, obj) {
   return info.value;
 }; 
 
-},{"./getPathInfo":55}],57:[function(require,module,exports){
+},{"./getPathInfo":54}],56:[function(require,module,exports){
 /*!
  * Chai - getProperties utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11366,7 +11530,7 @@ module.exports = function getProperties(object) {
   return result;
 };
 
-},{}],58:[function(require,module,exports){
+},{}],57:[function(require,module,exports){
 /*!
  * Chai - hasProperty utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11431,7 +11595,7 @@ module.exports = function hasProperty(name, obj) {
   return name in obj;
 };
 
-},{"type-detect":72}],59:[function(require,module,exports){
+},{"type-detect":71}],58:[function(require,module,exports){
 /*!
  * chai
  * Copyright(c) 2011 Jake Luer <jake@alogicalparadox.com>
@@ -11563,7 +11727,7 @@ exports.addChainableMethod = require('./addChainableMethod');
 
 exports.overwriteChainableMethod = require('./overwriteChainableMethod');
 
-},{"./addChainableMethod":46,"./addMethod":47,"./addProperty":48,"./expectTypes":49,"./flag":50,"./getActual":51,"./getMessage":53,"./getName":54,"./getPathInfo":55,"./getPathValue":56,"./hasProperty":58,"./inspect":60,"./objDisplay":61,"./overwriteChainableMethod":62,"./overwriteMethod":63,"./overwriteProperty":64,"./test":65,"./transferFlags":66,"deep-eql":68,"type-detect":72}],60:[function(require,module,exports){
+},{"./addChainableMethod":45,"./addMethod":46,"./addProperty":47,"./expectTypes":48,"./flag":49,"./getActual":50,"./getMessage":52,"./getName":53,"./getPathInfo":54,"./getPathValue":55,"./hasProperty":57,"./inspect":59,"./objDisplay":60,"./overwriteChainableMethod":61,"./overwriteMethod":62,"./overwriteProperty":63,"./test":64,"./transferFlags":65,"deep-eql":67,"type-detect":71}],59:[function(require,module,exports){
 // This is (almost) directly from Node.js utils
 // https://github.com/joyent/node/blob/f8c335d0caf47f16d31413f89aa28eda3878e3aa/lib/util.js
 
@@ -11898,7 +12062,7 @@ function objectToString(o) {
   return Object.prototype.toString.call(o);
 }
 
-},{"./getEnumerableProperties":52,"./getName":54,"./getProperties":57}],61:[function(require,module,exports){
+},{"./getEnumerableProperties":51,"./getName":53,"./getProperties":56}],60:[function(require,module,exports){
 /*!
  * Chai - flag utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11949,7 +12113,7 @@ module.exports = function (obj) {
   }
 };
 
-},{"../config":41,"./inspect":60}],62:[function(require,module,exports){
+},{"../config":40,"./inspect":59}],61:[function(require,module,exports){
 /*!
  * Chai - overwriteChainableMethod utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -12004,7 +12168,7 @@ module.exports = function (ctx, name, method, chainingBehavior) {
   };
 };
 
-},{}],63:[function(require,module,exports){
+},{}],62:[function(require,module,exports){
 /*!
  * Chai - overwriteMethod utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -12057,7 +12221,7 @@ module.exports = function (ctx, name, method) {
   }
 };
 
-},{}],64:[function(require,module,exports){
+},{}],63:[function(require,module,exports){
 /*!
  * Chai - overwriteProperty utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -12113,7 +12277,7 @@ module.exports = function (ctx, name, getter) {
   });
 };
 
-},{}],65:[function(require,module,exports){
+},{}],64:[function(require,module,exports){
 /*!
  * Chai - test utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -12141,7 +12305,7 @@ module.exports = function (obj, args) {
   return negate ? !expr : expr;
 };
 
-},{"./flag":50}],66:[function(require,module,exports){
+},{"./flag":49}],65:[function(require,module,exports){
 /*!
  * Chai - transferFlags utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -12187,7 +12351,7 @@ module.exports = function (assertion, object, includeAll) {
   }
 };
 
-},{}],67:[function(require,module,exports){
+},{}],66:[function(require,module,exports){
 /*!
  * assertion-error
  * Copyright(c) 2013 Jake Luer <jake@qualiancy.com>
@@ -12301,10 +12465,10 @@ AssertionError.prototype.toJSON = function (stack) {
   return props;
 };
 
-},{}],68:[function(require,module,exports){
+},{}],67:[function(require,module,exports){
 module.exports = require('./lib/eql');
 
-},{"./lib/eql":69}],69:[function(require,module,exports){
+},{"./lib/eql":68}],68:[function(require,module,exports){
 /*!
  * deep-eql
  * Copyright(c) 2013 Jake Luer <jake@alogicalparadox.com>
@@ -12563,10 +12727,10 @@ function objectEqual(a, b, m) {
   return true;
 }
 
-},{"buffer":2,"type-detect":70}],70:[function(require,module,exports){
+},{"buffer":2,"type-detect":69}],69:[function(require,module,exports){
 module.exports = require('./lib/type');
 
-},{"./lib/type":71}],71:[function(require,module,exports){
+},{"./lib/type":70}],70:[function(require,module,exports){
 /*!
  * type-detect
  * Copyright(c) 2013 jake luer <jake@alogicalparadox.com>
@@ -12710,9 +12874,9 @@ Library.prototype.test = function (obj, type) {
   }
 };
 
-},{}],72:[function(require,module,exports){
-arguments[4][70][0].apply(exports,arguments)
-},{"./lib/type":73,"dup":70}],73:[function(require,module,exports){
+},{}],71:[function(require,module,exports){
+arguments[4][69][0].apply(exports,arguments)
+},{"./lib/type":72,"dup":69}],72:[function(require,module,exports){
 /*!
  * type-detect
  * Copyright(c) 2013 jake luer <jake@alogicalparadox.com>
@@ -12848,7 +13012,7 @@ Library.prototype.test = function(obj, type) {
   }
 };
 
-},{}],74:[function(require,module,exports){
+},{}],73:[function(require,module,exports){
 /*
 
 The MIT License (MIT)
@@ -13036,7 +13200,7 @@ for (var map in colors.maps) {
 }
 
 defineProps(colors, init());
-},{"./custom/trap":75,"./custom/zalgo":76,"./maps/america":77,"./maps/rainbow":78,"./maps/random":79,"./maps/zebra":80,"./styles":81,"./system/supports-colors":82}],75:[function(require,module,exports){
+},{"./custom/trap":74,"./custom/zalgo":75,"./maps/america":76,"./maps/rainbow":77,"./maps/random":78,"./maps/zebra":79,"./styles":80,"./system/supports-colors":81}],74:[function(require,module,exports){
 module['exports'] = function runTheTrap (text, options) {
   var result = "";
   text = text || "Run the trap, drop the bass";
@@ -13083,7 +13247,7 @@ module['exports'] = function runTheTrap (text, options) {
 
 }
 
-},{}],76:[function(require,module,exports){
+},{}],75:[function(require,module,exports){
 // please no
 module['exports'] = function zalgo(text, options) {
   text = text || "   he is here   ";
@@ -13189,7 +13353,7 @@ module['exports'] = function zalgo(text, options) {
   return heComes(text, options);
 }
 
-},{}],77:[function(require,module,exports){
+},{}],76:[function(require,module,exports){
 var colors = require('../colors');
 
 module['exports'] = (function() {
@@ -13202,7 +13366,7 @@ module['exports'] = (function() {
     }
   }
 })();
-},{"../colors":74}],78:[function(require,module,exports){
+},{"../colors":73}],77:[function(require,module,exports){
 var colors = require('../colors');
 
 module['exports'] = (function () {
@@ -13217,7 +13381,7 @@ module['exports'] = (function () {
 })();
 
 
-},{"../colors":74}],79:[function(require,module,exports){
+},{"../colors":73}],78:[function(require,module,exports){
 var colors = require('../colors');
 
 module['exports'] = (function () {
@@ -13226,13 +13390,13 @@ module['exports'] = (function () {
     return letter === " " ? letter : colors[available[Math.round(Math.random() * (available.length - 1))]](letter);
   };
 })();
-},{"../colors":74}],80:[function(require,module,exports){
+},{"../colors":73}],79:[function(require,module,exports){
 var colors = require('../colors');
 
 module['exports'] = function (letter, i, exploded) {
   return i % 2 === 0 ? letter : colors.inverse(letter);
 };
-},{"../colors":74}],81:[function(require,module,exports){
+},{"../colors":73}],80:[function(require,module,exports){
 /*
 The MIT License (MIT)
 
@@ -13310,7 +13474,7 @@ Object.keys(codes).forEach(function (key) {
   style.open = '\u001b[' + val[0] + 'm';
   style.close = '\u001b[' + val[1] + 'm';
 });
-},{}],82:[function(require,module,exports){
+},{}],81:[function(require,module,exports){
 (function (process){
 /*
 The MIT License (MIT)
@@ -13374,7 +13538,7 @@ module.exports = (function () {
   return false;
 })();
 }).call(this,require('_process'))
-},{"_process":11}],83:[function(require,module,exports){
+},{"_process":11}],82:[function(require,module,exports){
 //
 // Remark: Requiring this file will use the "safe" colors API which will not touch String.prototype
 //
@@ -13384,7 +13548,7 @@ module.exports = (function () {
 //
 var colors = require('./lib/colors');
 module['exports'] = colors;
-},{"./lib/colors":74}],84:[function(require,module,exports){
+},{"./lib/colors":73}],83:[function(require,module,exports){
 (function (global){
 /*
   Copyright (C) 2012-2014 Yusuke Suzuki <utatane.tea@gmail.com>
@@ -15964,7 +16128,7 @@ module['exports'] = colors;
 /* vim: set sw=4 ts=4 et tw=80 : */
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./package.json":103,"estraverse":85,"esutils":89,"source-map":90}],85:[function(require,module,exports){
+},{"./package.json":102,"estraverse":84,"esutils":88,"source-map":89}],84:[function(require,module,exports){
 /*
   Copyright (C) 2012-2013 Yusuke Suzuki <utatane.tea@gmail.com>
   Copyright (C) 2012 Ariya Hidayat <ariya.hidayat@gmail.com>
@@ -16811,7 +16975,7 @@ module['exports'] = colors;
 }));
 /* vim: set sw=4 ts=4 et tw=80 : */
 
-},{}],86:[function(require,module,exports){
+},{}],85:[function(require,module,exports){
 /*
   Copyright (C) 2013 Yusuke Suzuki <utatane.tea@gmail.com>
 
@@ -16957,7 +17121,7 @@ module['exports'] = colors;
 }());
 /* vim: set sw=4 ts=4 et tw=80 : */
 
-},{}],87:[function(require,module,exports){
+},{}],86:[function(require,module,exports){
 /*
   Copyright (C) 2013-2014 Yusuke Suzuki <utatane.tea@gmail.com>
   Copyright (C) 2014 Ivan Nikulin <ifaaan@gmail.com>
@@ -17094,7 +17258,7 @@ module['exports'] = colors;
 }());
 /* vim: set sw=4 ts=4 et tw=80 : */
 
-},{}],88:[function(require,module,exports){
+},{}],87:[function(require,module,exports){
 /*
   Copyright (C) 2013 Yusuke Suzuki <utatane.tea@gmail.com>
 
@@ -17261,7 +17425,7 @@ module['exports'] = colors;
 }());
 /* vim: set sw=4 ts=4 et tw=80 : */
 
-},{"./code":87}],89:[function(require,module,exports){
+},{"./code":86}],88:[function(require,module,exports){
 /*
   Copyright (C) 2013 Yusuke Suzuki <utatane.tea@gmail.com>
 
@@ -17296,7 +17460,7 @@ module['exports'] = colors;
 }());
 /* vim: set sw=4 ts=4 et tw=80 : */
 
-},{"./ast":86,"./code":87,"./keyword":88}],90:[function(require,module,exports){
+},{"./ast":85,"./code":86,"./keyword":87}],89:[function(require,module,exports){
 /*
  * Copyright 2009-2011 Mozilla Foundation and contributors
  * Licensed under the New BSD license. See LICENSE.txt or:
@@ -17306,7 +17470,7 @@ exports.SourceMapGenerator = require('./source-map/source-map-generator').Source
 exports.SourceMapConsumer = require('./source-map/source-map-consumer').SourceMapConsumer;
 exports.SourceNode = require('./source-map/source-node').SourceNode;
 
-},{"./source-map/source-map-consumer":98,"./source-map/source-map-generator":99,"./source-map/source-node":100}],91:[function(require,module,exports){
+},{"./source-map/source-map-consumer":97,"./source-map/source-map-generator":98,"./source-map/source-node":99}],90:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -17405,7 +17569,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"./util":101,"amdefine":102}],92:[function(require,module,exports){
+},{"./util":100,"amdefine":101}],91:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -17549,7 +17713,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"./base64":93,"amdefine":102}],93:[function(require,module,exports){
+},{"./base64":92,"amdefine":101}],92:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -17593,7 +17757,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"amdefine":102}],94:[function(require,module,exports){
+},{"amdefine":101}],93:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -18015,7 +18179,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"./array-set":91,"./base64-vlq":92,"./binary-search":95,"./source-map-consumer":98,"./util":101,"amdefine":102}],95:[function(require,module,exports){
+},{"./array-set":90,"./base64-vlq":91,"./binary-search":94,"./source-map-consumer":97,"./util":100,"amdefine":101}],94:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -18097,7 +18261,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"amdefine":102}],96:[function(require,module,exports){
+},{"amdefine":101}],95:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -18402,7 +18566,7 @@ define(function (require, exports, module) {
   exports.IndexedSourceMapConsumer = IndexedSourceMapConsumer;
 });
 
-},{"./basic-source-map-consumer":94,"./binary-search":95,"./source-map-consumer":98,"./util":101,"amdefine":102}],97:[function(require,module,exports){
+},{"./basic-source-map-consumer":93,"./binary-search":94,"./source-map-consumer":97,"./util":100,"amdefine":101}],96:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2014 Mozilla Foundation and contributors
@@ -18490,7 +18654,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"./util":101,"amdefine":102}],98:[function(require,module,exports){
+},{"./util":100,"amdefine":101}],97:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -18714,7 +18878,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"./basic-source-map-consumer":94,"./indexed-source-map-consumer":96,"./util":101,"amdefine":102}],99:[function(require,module,exports){
+},{"./basic-source-map-consumer":93,"./indexed-source-map-consumer":95,"./util":100,"amdefine":101}],98:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -19116,7 +19280,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"./array-set":91,"./base64-vlq":92,"./mapping-list":97,"./util":101,"amdefine":102}],100:[function(require,module,exports){
+},{"./array-set":90,"./base64-vlq":91,"./mapping-list":96,"./util":100,"amdefine":101}],99:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -19532,7 +19696,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"./source-map-generator":99,"./util":101,"amdefine":102}],101:[function(require,module,exports){
+},{"./source-map-generator":98,"./util":100,"amdefine":101}],100:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -19853,7 +20017,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"amdefine":102}],102:[function(require,module,exports){
+},{"amdefine":101}],101:[function(require,module,exports){
 (function (process,__filename){
 /** vim: et:ts=4:sw=4:sts=4
  * @license amdefine 1.0.0 Copyright (c) 2011-2015, The Dojo Foundation All Rights Reserved.
@@ -20157,8 +20321,8 @@ function amdefine(module, requireFn) {
 
 module.exports = amdefine;
 
-}).call(this,require('_process'),"/../forth/node_modules/escodegen/node_modules/source-map/node_modules/amdefine/amdefine.js")
-},{"_process":11,"path":10}],103:[function(require,module,exports){
+}).call(this,require('_process'),"/node_modules/forth/node_modules/escodegen/node_modules/source-map/node_modules/amdefine/amdefine.js")
+},{"_process":11,"path":10}],102:[function(require,module,exports){
 module.exports={
   "name": "escodegen",
   "description": "ECMAScript code generator",
@@ -20247,7 +20411,7 @@ module.exports={
   "readme": "ERROR: No README data found!"
 }
 
-},{}],104:[function(require,module,exports){
+},{}],103:[function(require,module,exports){
 /*
   Copyright (c) jQuery Foundation, Inc. and Contributors, All Rights Reserved.
 
@@ -25992,7 +26156,7 @@ module.exports={
 }));
 /* vim: set sw=4 ts=4 et tw=80 : */
 
-},{}],105:[function(require,module,exports){
+},{}],104:[function(require,module,exports){
 /*
   Copyright (C) 2012-2013 Yusuke Suzuki <utatane.tea@gmail.com>
   Copyright (C) 2012 Ariya Hidayat <ariya.hidayat@gmail.com>
@@ -26837,7 +27001,7 @@ module.exports={
 }(exports));
 /* vim: set sw=4 ts=4 et tw=80 : */
 
-},{"./package.json":106}],106:[function(require,module,exports){
+},{"./package.json":105}],105:[function(require,module,exports){
 module.exports={
   "name": "estraverse",
   "description": "ECMAScript JS AST traversal functions",
@@ -26889,7 +27053,7 @@ module.exports={
   },
   "_id": "estraverse@4.1.1",
   "_shasum": "f6caca728933a850ef90661d0e17982ba47111a2",
-  "_from": "estraverse@>=4.1.0 <5.0.0",
+  "_from": "estraverse@>=4.1.1 <5.0.0",
   "_npmVersion": "2.14.4",
   "_nodeVersion": "4.1.1",
   "_npmUser": {
@@ -26905,10 +27069,10 @@ module.exports={
   "readme": "ERROR: No README data found!"
 }
 
-},{}],107:[function(require,module,exports){
+},{}],106:[function(require,module,exports){
 module.exports={
   "name": "forth",
-  "version": "0.6.0",
+  "version": "0.8.0",
   "description": "Forth programming environment",
   "main": "lib/index.js",
   "bin": {
@@ -26920,12 +27084,14 @@ module.exports={
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/drom/forth.git"
+    "url": "git+https://github.com/drom/forth.git"
   },
   "keywords": [
     "forth"
   ],
-  "author": "drom",
+  "author": {
+    "name": "drom"
+  },
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/drom/forth/issues"
@@ -26945,7 +27111,86 @@ module.exports={
     "eslint": "^1.9.0",
     "istanbul": "^0.4.0",
     "mocha": "^2.3.3"
-  }
+  },
+  "readme": "# Forth\n[![NPM version](https://img.shields.io/npm/v/forth.svg)](https://www.npmjs.org/package/forth) [![Build Status](https://travis-ci.org/drom/forth.svg?branch=master)](https://travis-ci.org/drom/forth) [![Build status](https://ci.appveyor.com/api/projects/status/xw04eu1fa8ng167h?svg=true)](https://ci.appveyor.com/project/drom/forth)\n\nForth programming environment implemented in JavaScript.\n\n## Use\n### Node.js\n\n```\nnpm i forth -g\n```\n\n### REPL\n```\nforth\n```\n\n### Streaming CLI\n```\nforth < core.frt\n```\n\n### Library\n\n```js\nvar forth = require('forth');\nvar f = forth(); // new instance of Forth machine\n// f.s -- is the duplex stream\nprocess.stdin.pipe(f.s).pipe(process.stdout);\n```\n\n### Browser\nuse Browserify!\n\n### APIs\n#### f.interpret(input, cb)\nRun Forth interpreter.\n\n`input` can be String or Stream\n\n#### f.DS()\nData stack Array\n\n#### f.RS()\nReturn stack Array\n\n## Testing\n`npm test`\n\n## License\nMIT [LICENSE](https://github.com/drom/forth/blob/master/LICENSE).\n",
+  "readmeFilename": "README.md",
+  "gitHead": "68659fee33746f588824ab9e460bb34bd203791d",
+  "_id": "forth@0.8.0",
+  "_shasum": "09ed88fe1149aec2ec4b04027dcd602c60fc8db4",
+  "_from": "forth@*"
 }
 
-},{}]},{},[27]);
+},{}],107:[function(require,module,exports){
+(function () {
+    'use strict';
+
+    var forth = require('forth');
+
+    var inp, oup, cmForth, cmJavaSCript, comments, f, myTimeOut;
+
+    function refresh () {
+        var time = Date.now();
+        var source = cmForth.getValue();
+        var consolebuffer = '';
+        f = forth();
+        f.s.write(source);
+        f.s.on('data', function (chunk) {
+            consolebuffer += chunk;
+            cmJavaSCript.setValue(consolebuffer);
+        });
+        console.log((Date.now() - time) + 'ms');
+        localStorage.forthSourceCode = source;
+    }
+
+    comments = true;
+    inp = document.getElementById('inp');
+    oup = document.getElementById('oup');
+
+    inp.value = localStorage.forthSourceCode || ': foo 1 2 + ;';
+    oup.value = '?';
+
+    document.getElementById('button').addEventListener('click', function () {
+        comments = !comments;
+        refresh();
+    });
+
+    cmForth = CodeMirror.fromTextArea(
+        inp,
+        {
+            mode: 'forth',
+            theme: 'colorforth',
+            lineNumbers: true,
+            lineWrapping: true,
+            indentUnit: 2,
+            tabSize: 2,
+            autofocus: false
+        }
+    );
+
+    cmJavaSCript = CodeMirror.fromTextArea(
+        oup,
+        {
+            mode: 'javascript',
+            lineNumbers: true,
+            indentUnit: 2,
+            tabSize: 2,
+            matchBrackets: true,
+            autoCloseBrackets: true,
+            highlightSelectionMatche: true,
+            autofocus: true
+        }
+    );
+
+
+    cmForth.on('change', function () {
+        clearTimeout(myTimeOut);
+        myTimeOut = setTimeout(refresh, 750);
+    });
+
+    refresh();
+})();
+
+/* global console, CodeMirror */
+/* env browser */
+
+},{"forth":32}]},{},[107]);
