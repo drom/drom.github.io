@@ -1,0 +1,223 @@
+<!DOCTYPE HTML>
+<html lang="en">
+<head>
+    <title>JavaScript back and Forth</title>
+
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=792, user-scalable=no">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <link rel="stylesheet" href="css/screen.css">
+</head>
+<body class="list">
+
+
+
+<header class="caption">
+    <h1>JavaScript back and Forth</h1>
+    <p>Aliaksei Chapyzhenka</p>
+</header>
+
+
+
+<section class="slide cover" id="Cover"><div>
+    <h2>JavaScript back and Forth</h2>
+    <p>Aliaksei Chapyzhenka <a href="http://drom.io/fday15">drom.io/fday15</a></p>
+
+    <figure>
+        <blockquote><p>
+            We turn out water into wine</br>
+            It's something we do all the time</br>
+            It doesn't cost a single dime</br>
+            And it's beautiful...</br>
+        </p></blockquote>
+        <figcaption>Crash Test Dummies</figcaption>
+    </figure>
+
+    <style>
+        #Cover h2 {
+            margin:30px 0 0;
+            color:#FFF;
+            text-align:center;
+            font-size:70px;
+        }
+        #Cover p {
+            margin:30px;
+            text-align:center;
+            color:#FFF;
+            font-style:italic;
+            font-size:20px;
+        }
+        #Cover p a {
+            color:#FFF;
+        }
+        #Cover figure blockquote p {
+            margin:0px;
+            color:#afa;
+            text-align:right;
+            font-size:20px;
+        }
+        #Cover figure figcaption {
+            margin:20px;
+            color:#bbb;
+            text-align:right;
+            font-size:20px;
+        }
+    </style>
+</div></section>
+
+
+
+<section class="slide"><div>
+    <h2>Forth is everywhere</h2>
+        <li>Forth runs everywhere</li>
+        <li class="next">from micro-controllers to rockets</li>
+        <li class="next"><b>"everywhere"</b> is changing over time</li>
+        <li class="next">JavaScript is everywhere</li>
+        <li class="next">Can we translate Forth &lt;--&gt; JavaScript</li>
+    </ul>
+</div></section>
+
+
+
+<section class="slide"><div>
+    <h2>JavaScipt is new "everywhere"</h2>
+    <ul>
+        <li>PC client (browser)</li>
+        <li>server, cloud (<a href="https://nodejs.org/en/">node.js</a>)</li>
+        <li>mobile phone, tablet</li>
+        <li>embedded:</li>
+        <ul>
+            <li>TV, iot, embedded</li>
+            <li>Dev boards: <a href="https://tessel.io/">tessel.io</a>, <a href="http://www.espruino.com/">espruino.com</a></li>
+            <li>Runtimes: <a href="http://kinoma.com/">kinomajs</a>, <a href="http://www.iotjs.net">iot.js</a>, <a href="https://github.com/cesanta/v7">v7</a></li>
+        </ul>
+    </ul>
+</div></section>
+
+
+
+<section class="slide"><div>
+    <h2>Some JavaScript facts</h2>
+    <ul>
+        <li>Dynamic, do all at runtime</li>
+        <li>Untyped, everything is var</li>
+        <li>Interpreted, no explicit compile stage, binary or bytecode</li>
+        <li>Multi-pardigm, imperative, OO, functional</li>
+        <li>Async programming with callbacks</li>
+        <li>Streams, UNIX concept. (stdin/stdout)</li>
+        <li>originally developed in 10 days in May 1995</li>
+    </ul>
+</div></section>
+
+
+
+<section class="slide"><div>
+    <h2>JavaScript AST</h2>
+    <ul>
+        <li>JavaScript code can be represented in form of Abstract Syntax Tree (AST)</li>
+        <li>Parser, code generator, traversal utilites, will use it.</li>
+        <li>
+            <a href="http://esprima.org/demo/parse.html">Mozilla-AST</a> and
+            <a href="http://shift-ast.org/">Shift-AST</a>
+            , are the most popular AST formats
+        </li>
+        <li>AST can be represented in JSON format</li>
+        <li>AST used in all following experiments</li>
+    </ul>
+    <p></p>
+</div></section>
+
+
+
+<section class="slide"><div>
+    <h2>JavaScript arithmetic</h2>
+    <ul>
+        <li>Main numeric value format is float64, tricks to do i32, u32, f32.</li>
+        <ul>
+            <li>x | 0 --&gt; i32</li>
+            <li>x >>> 0 --&gt; u32</li>
+            <li>+x --&gt; f64</li>
+            <li>Math.fround(x) --&gt; f32</li>
+        </ul>
+        <li>
+            <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Typed_arrays">TypedArrays</a>
+            can be used to store signed / unsigned {8, 16, 32}, f32, f64
+        </li>
+        <li>
+            <a href="http://asmjs.org">asm.js</a> and
+            <a href="https://github.com/WebAssembly">WebAssembly</a>
+            new ways to be closer to CPU.
+        </li>
+    </ul>
+</div></section>
+
+
+
+<section class="slide"><div>
+    <h2>case 1: Forth interpreter in JavaScript</h2>
+    <ul>
+        <li>Standard Forth interpreter in JavaScript</li>
+        <li>JavaScript as an Assembler</li>
+        <li>Forth as a stream, non-blocking IO</li>
+        <li>embed Forth inside web page or server</li>
+        <li>Working torwards ANS94 and Forth2012 compliance.</li>
+    </ul>
+    <p class="note">
+        <a href="https://github.com/drom/forth">Repo</a> and
+        <a href="./forth/index.html">Demo</a>
+    </p>
+</div></section>
+
+
+
+<section class="slide"><div>
+    <h2>Forth in JS challenges</h2>
+    <ul>
+        <li>Double and mixed integer arithmetic. i64, u64</li>
+        <li>Forth control structures are complex, JS has no branches</li>
+    </ul>
+</div></section>
+
+
+
+<section class="slide"><div>
+    <h2>case 2: JavaScript to Forth</h2>
+    <ul>
+        <li>Proof of concept prototype</li>
+        <li>Needs serious CFG and SSA pipeline</li>
+        <li>Migrating to the <a href="http://darksi.de/d.sea-of-nodes/">Sea of Nodes</a> tools</li>
+        <li>May switch to WebAssembly:
+            <a href="https://github.com/drom/wast-parser">wast-parser</a>,
+            <a href="https://github.com/drom/wast-pipeline">wast-pipeline</a>
+        </li>
+    </ul>
+    <p class="note"><a href="./shift-forth/index.html">Demo</a></p>
+</div></section>
+
+
+
+<section class="slide"><div>
+    <h2>case 3: CodeMirror</h2>
+    <p><a href="https://codemirror.net/mode/forth/">CodeMirror</a> is a versatile text editor implemented in JavaScript for the browser</p>
+    <p>Supports 100+ languages including Forth</p>
+    <p>Runs lightweight Forth interpreter to do proper coloring</p>
+</div></section>
+
+
+
+<section class="slide"><div>
+    <h2>Conclusions</h2>
+    <ul>
+        <li>Yes, one can mix JavaScript and Forth</li>
+        <li>Allows doing full web-based Forth IDE</li>
+        <li>For me -- stepping stone to do my Stack Processor reserach (<a href="https://github.com/drom/quark">Quark</a>).</li>
+        <li>All free and Open Source</li>
+    </ul>
+</div></section>
+
+
+
+<div class="progress"><div></div></div>
+<script src="js/shower.min.js"></script>
+</body>
+</html>
