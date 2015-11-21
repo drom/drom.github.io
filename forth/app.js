@@ -5040,7 +5040,7 @@ module.exports = {
     program: program
 };
 
-},{"estraverse":104}],28:[function(require,module,exports){
+},{"estraverse":105}],28:[function(require,module,exports){
 'use strict';
 
 var def = require('./def'),
@@ -5056,7 +5056,7 @@ function main (cxt) {
 // : : CREATE ] DOES> doLIST ;
     def(':', function () {
         var w = this.io.word('\\s');
-        this.state = 1;
+        this.setState(1);
         this.cfs = [];
         this.lastw = w;
         this.pos = [];
@@ -5068,18 +5068,18 @@ function main (cxt) {
 // : ; next [ ; IMMEDIATE
 // : ; POSTPONE EXIT  REVEAL POSTPONE [ ; IMMEDIATE
     def(';', function () {
-        this.state = 0;
+        this.setState(0);
         def(this.lastw, this.ast, this);
     }, cxt, { immediate: true });
 
 // : [ -1 STATE ! ; IMMEDIATE
     def('[', function () {
-        this.state = 0;
+        this.setState(0);
     }, cxt, { immediate: true });
 
 // : ] 0 STATE ! ;
     def(']', function () {
-        this.state = 1;
+        this.setState(1);
     }, cxt);
 
 // 6.1.2250 STATE (CORE)
@@ -5092,7 +5092,7 @@ function main (cxt) {
 // Note: A program shall not directly alter the contents of STATE.
 
     def('state', function () {
-        this.dpush(0); // TODO should be real state memory cell
+        this.dpush(this.stateAddr()); // TODO should be real state memory cell
     }, cxt);
 
 
@@ -5568,9 +5568,14 @@ function main (cxt) {
 //      ccc. A program shall not alter the returned string.
     def('s"', function () {
         var w = this.io.parse('"');
-        // TODO copy to the memory
-        this.pos.push(ast.dpush(0)); // TODO addr
-        this.pos.push(ast.dpush(w.length));
+        var i, ilen, here;
+        here = this.here;
+        for (i = 0, ilen = w.length; i < ilen; i++) {
+            this.MEMi8[here + i] = w.charCodeAt(i);
+        }
+        this.here += ilen;
+        this.pos.push(ast.dpush(here)); // TODO addr
+        this.pos.push(ast.dpush(ilen));
     }, cxt, { immediate: true });
 
 // : DO POSTPONE 2>R HERE ; IMMEDIATE
@@ -6211,6 +6216,12 @@ function main (cxt) {
     }, cxt, { immediate: true });
 
     def('>body', function () {
+        var xt = this.dpop();
+        var word = this.L[xt];
+        var name = word.name;
+        var obj = this.O[name];
+        var dfa = obj.dfa;
+        this.dpush(dfa);
     }, cxt, { immediate: true });
 
 
@@ -6228,11 +6239,80 @@ function main (cxt) {
         this.pos.push(ast.callword(index));
     }, cxt, { immediate: true });
 
+    // 6.1.0190 ."
+        def('."', function () {
+            var w = this.io.parse('"');
+            this.pos.push({
+                type: Syntax.ExpressionStatement,
+                expression: {
+                    type: Syntax.CallExpression,
+                    callee: {
+                        type: Syntax.MemberExpression,
+                        computed: false,
+                        object: {
+                            type: Syntax.ThisExpression
+                        },
+                        property: {
+                            type: Syntax.Identifier,
+                            name: 'log'
+                        }
+                    },
+                    arguments: [
+                        {
+                            type: Syntax.Literal,
+                            value: w,
+                            raw: w
+                        }
+                    ]
+                }
+            });
+        }, cxt, { immediate: true });
+
+// 6.1.1250 DOES>
+    def('does>', function () {
+        var oldpos = this.pos;
+        this.pos = [];
+        oldpos.push({
+            type: Syntax.ExpressionStatement,
+            expression: {
+                type: Syntax.CallExpression,
+                callee: {
+                    type: Syntax.MemberExpression,
+                    computed: false,
+                    object: {
+                        type: Syntax.ThisExpression
+                    },
+                    property: {
+                        type: Syntax.Identifier,
+                        name: 'does'
+                    }
+                },
+                arguments: [
+                    {
+                        type: Syntax.FunctionExpression,
+                        id: null,
+                        params: [],
+                        defaults: [],
+                        body: {
+                            type: Syntax.BlockStatement,
+                            body: this.pos
+                        },
+                        generator: false,
+                        expression: false
+                    },
+                    {
+                        type: Syntax.ThisExpression
+                    }
+                ]
+            }
+        });
+    }, cxt, { immediate: true });
+
 }
 
 module.exports = main;
 
-},{"./ast":27,"./def":31,"estraverse":104}],29:[function(require,module,exports){
+},{"./ast":27,"./def":31,"estraverse":105}],29:[function(require,module,exports){
 'use strict';
 
 var def = require('./def'),
@@ -6240,7 +6320,7 @@ var def = require('./def'),
     expect = require('chai').expect;
 
 function core (cxt) {
-    cxt.base = 10;
+    cxt.setBase(10);
     var stash = {};
 
     def('\\', function () {
@@ -6251,17 +6331,55 @@ function core (cxt) {
         this.io.parse('\\)');
     }, cxt, { immediate: true });
 
+    def('.(', function () {
+        var str = this.io.parse('\\)');
+        this.log(str);
+    }, cxt, { immediate: true });
+
 // 6.1.0990 CR  “c-r” (CORE)
 // ( -- )
 // Cause subsequent output to appear at the beginning of the next line.
-
     def('cr', function () {
         cxt.log('\n');
+    }, cxt);
+
+// 6.1.2220 SPACE
+    def('space', function () {
+        cxt.log(' ');
+    }, cxt);
+
+// 6.1.2230 SPACES
+    def('spaces', function () {
+        cxt.log(' '.repeat(this.dpop()));
+    }, cxt);
+
+    def('bl', function () {
+        this.dpush(32);
     }, cxt);
 
     def('.', function () {
         cxt.log(' ' + this.dpop());
     }, cxt);
+
+    def('.s', function () {
+        cxt.DS.forEach(function (e) {
+            cxt.log(' ' + e);
+        });
+    }, cxt);
+
+// 15.6.1.1280 DUMP (TOOLS)
+// ( addr u -- )
+// Display the contents of u consecutive addresses starting at addr.
+// The format of the display is implementation dependent.
+    def('dump', function () {
+        var ilen = this.dpop();
+        var addr = this.dpop();
+        var i;
+        for (i = 0; i < ilen; i++) {
+            cxt.log(' ' + this.MEMi8[addr + i]);
+        }
+    }, cxt);
+
 
 // 6.1.0895 CHAR “char” (CORE)
 // ( “<spaces>name” -- char )
@@ -6284,7 +6402,154 @@ function core (cxt) {
         this.dpush(t);
     }, cxt);
 
-    def('hex', function () { this.base = 16; }, cxt);
+    def('hex', function () { this.setBase(16); }, cxt);
+
+    def('decimal', function () { this.setBase(10); }, cxt);
+
+// 6.1.0030 #
+    def('#', function () { }, cxt);
+
+// 6.1.0040 #>
+    def('#>', function () {
+        this.dpop();
+        this.dpop();
+        this.dpush(100);
+        this.dpush(100);
+    }, cxt);
+
+// 6.1.0050 #S
+    def('#s', function () { }, cxt);
+
+// 6.1.0490 <#
+    def('<#', function () {
+
+    }, cxt);
+
+// 6.1.0560 >IN
+    def('>in', function () {
+        this.dpush(this.toinAddr());
+    }, cxt);
+
+// 6.1.0570 >NUMBER
+    def('>number', function () { }, cxt);
+
+// 6.1.0670 ABORT
+    def('abort', function () { }, cxt);
+
+// 6.1.0680 ABORT"
+    def('abort"', function () { }, cxt);
+
+// 6.1.0695 ACCEPT
+    def('accept', function () { }, cxt);
+
+// 6.1.0750 BASE
+    def('base', function () {
+        this.dpush(this.baseAddr());
+    }, cxt);
+
+// 6.1.0980 COUNT
+    def('count', function () {
+        var addr = this.dpop();
+        var i;
+        for (i = 0; i < 100; i++) {
+            if (this.MEMi8[addr + i] === 0) {
+                break;
+            };
+        }
+        this.dpush(addr);
+        this.dpush(i);
+    }, cxt);
+
+// 6.1.1320 EMIT ( x -- )
+    def('emit', function () {
+        this.log(String.fromCharCode(this.dpop() >>> 0));
+    }, cxt);
+
+// 6.1.1360 EVALUATE ( i*x c-addr u -- j*x )
+    def('evaluate', function () {
+        var str = '';
+        var len = this.dpop();
+        var addr = this.dpop();
+
+        // Save the current input source specification
+        var buf = this.io.buf;
+        var ptr = this.io.ptr;
+        var last = this.io.last;
+
+        // Make the string described by c-addr and u both the input
+        // source and input buffer, set >IN to zero
+        var i;
+        for (i = 0; i < len; i++) {
+            str += String.fromCharCode(this.MEMi8[addr + i]);
+        }
+        // , and interpret
+        this.interpret(str);
+
+        // When the parse area is empty, restore the prior input
+        // source specification.
+        this.io.buf = buf;
+        this.io.ptr = ptr;
+        this.io.last = last;
+    }, cxt);
+
+// 6.1.1380 EXIT
+    def('exit', function () { }, cxt);
+
+// 6.1.1540 FILL
+    def('fill', function () { }, cxt);
+
+// 6.1.1550 FIND
+    def('find', function () { }, cxt);
+
+// 6.1.1670 HOLD
+    def('hold', function () { }, cxt);
+
+// 6.1.1750 KEY
+    def('key', function () {
+        this.dpush(42); // TODO
+    }, cxt);
+
+// 6.1.1900 MOVE
+    def('move', function () { }, cxt);
+
+// 6.1.2050 QUIT
+    def('quit', function () { }, cxt);
+
+// 6.1.2210 SIGN
+    def('sign', function () { }, cxt);
+
+// 6.1.2216 SOURCE
+    def('source', function () {
+        this.dpush(this.here);
+        this.dpush(this.io.last - this.io.ptr);
+    }, cxt);
+
+// 6.1.2310 TYPE
+    def('type', function () { }, cxt);
+
+// 6.1.2320 U.
+    def('u.', function () {
+        cxt.log(' ' + (this.dpop() >>> 0));
+    }, cxt);
+
+// 6.1.2450 WORD
+    def('word', function () {
+        var char = this.dpop();
+        var w = this.io.word(String.fromCharCode(char));
+        var i, ilen, here;
+        here = this.here;
+        for (i = 0, ilen = w.length; i < ilen; i++) {
+            this.MEMi8[here + i] = w.charCodeAt(i);
+        }
+        this.MEMi8[here + ilen] = 0;
+        this.here += (ilen + 1);
+        this.dpush(here);
+    }, cxt);
+
+
+
+
+
 
 // tester
 
@@ -6315,7 +6580,7 @@ function core (cxt) {
 
 module.exports = core;
 
-},{"./def":31,"chai":37,"colors/safe":82}],30:[function(require,module,exports){
+},{"./def":31,"chai":38,"colors/safe":83}],30:[function(require,module,exports){
 'use strict';
 
 var colors = require('colors/safe'),
@@ -6337,8 +6602,8 @@ function main (cxt) {
         var w = this.io.word('\\s');
         var here = this.here;
         def(w, function () {
-            this.dpush(here);
-        }, this);
+            this.dpush(this.here);
+        }, this, {body: here});
     }, cxt);
 
 // CODE
@@ -6432,11 +6697,17 @@ def('end-code', function () {
         }
     }, cxt);
 
+// 6.1.1370 EXECUTE
+    def('execute', function () {
+        var xt = this.dpop();
+        this[xt].call(this);
+    }, cxt);
+// EVALUATE
 }
 
 module.exports = main;
 
-},{"./def":31,"colors/safe":82}],31:[function(require,module,exports){
+},{"./def":31,"colors/safe":83}],31:[function(require,module,exports){
 'use strict';
 
 var parse = require('esprima').parse,
@@ -6499,7 +6770,7 @@ function def (name, fn, cxt, attr) {
     var index = cxt.L.length;
     name = name.toLowerCase();
     cxt.L.push({name: name});
-    cxt.O[name] = {index: index};
+    cxt.O[name] = {index: index, dfa: cxt.here };
     if (attr) {
         Object.keys(attr).forEach(function (key) {
             cxt.O[name][key] = attr[key];
@@ -6510,12 +6781,37 @@ function def (name, fn, cxt, attr) {
 
 module.exports = def;
 
-},{"escodegen":83,"esprima":103,"estraverse":104}],32:[function(require,module,exports){
+},{"escodegen":84,"esprima":104,"estraverse":105}],32:[function(require,module,exports){
+'use strict';
+
+var parse = require('esprima').parse,
+    generate = require('escodegen').generate;
+
+function does (fn, cxt) {
+    var oldtree, newtree, oldpos, newpos, fn;
+
+    oldtree = parse('fn = ' + fn.toString());
+    oldpos = oldtree.body[0].expression.right.body.body;
+
+    newtree = parse('fn = ' + cxt[cxt.L.length - 1].toString());
+    newpos = newtree.body[0].expression.right.body.body;
+
+    oldpos.forEach(function (e) {
+        newpos.push(e);
+    });
+    eval(generate(newtree));
+    cxt[cxt.L.length - 1] = fn;
+}
+
+module.exports = does;
+
+},{"escodegen":84,"esprima":104}],33:[function(require,module,exports){
 'use strict';
 
 var stream = require('stream'),
     stack = require('./stack'),
     core = require('./core'),
+    does = require('./does'),
     memory = require('./memory'),
     interpret = require('./interpret'),
     create = require('./create'),
@@ -6530,12 +6826,13 @@ function forth () {
         s: stream.Duplex(),
         pkg: pkg,
         L: [],
-        O: {}
+        O: {},
+        does: does
     };
-    interpret(v);
     stack(v);
-    core(v);
     memory(v);
+    interpret(v);
+    core(v);
     create(v);
     cfg(v);
     return v;
@@ -6543,7 +6840,7 @@ function forth () {
 
 module.exports = forth;
 
-},{"../package.json":106,"./cfg":28,"./core":29,"./create":30,"./interpret":33,"./memory":34,"./stack":35,"stream":25}],33:[function(require,module,exports){
+},{"../package.json":108,"./cfg":28,"./core":29,"./create":30,"./does":32,"./interpret":34,"./memory":35,"./stack":36,"stream":25}],34:[function(require,module,exports){
 (function (Buffer){
 'use strict';
 
@@ -6553,7 +6850,7 @@ var word = require('./word'),
     colors = require('colors/safe');
 
 function interpret (str, done) {
-    var w, wordLink, num, lines;
+    var w, wordLink, num, lines = ['\n', '\n'];
 
     if (typeof str === 'string') {
         str = new Buffer(str, 'ascii');
@@ -6563,6 +6860,7 @@ function interpret (str, done) {
     this.io.ptr = 0;
     this.io.last = str.length - 1;
     while (true) {
+        // console.log(this.getBase());
         w = this.io.word('\\s');
         if (w === undefined) {
             if (typeof done === 'function') {
@@ -6571,7 +6869,7 @@ function interpret (str, done) {
             return;
         }
         wordLink = this.O[w.toLowerCase()];
-        if (this.state) { // compile
+        if (this.getState()) { // compile
             if (wordLink) {
                 if (wordLink.immediate) {
                     this[wordLink.index]();
@@ -6579,9 +6877,13 @@ function interpret (str, done) {
                    this.pos.push(ast.callword(wordLink.index));
                 }
             } else {
-                num = parseInt(w, this.base);
+                num = parseInt(w, this.getBase());
                 if (Number.isNaN(num)) {
-                    lines = this.io.buf.slice(0, this.io.ptr).split('\n');
+                    try {
+                        lines = this.io.buf.slice(0, this.io.ptr).split('\n');
+                    } catch (err) {
+                        this.log('can\'t get source but\n');
+                    }
                     this.log('\n' + colors.red('Error:') + ' in line: ' + (lines.length - 1));
                     this.log('word: ' + w + ' is not defined');
                     this.log(lines.pop());
@@ -6594,7 +6896,7 @@ function interpret (str, done) {
             if (wordLink) {
                 this[wordLink.index]();
             } else {
-                num = parseInt(w, this.base);
+                num = parseInt(w, this.getBase());
                 if (Number.isNaN(num)) {
                     // lines = this.io.buf.slice(0, this.io.ptr).split('\n');
                     // this.log('\n' + colors.red('Error:') + ' in line: ' + (lines.length - 1));
@@ -6617,7 +6919,6 @@ function main (cxt) {
         parse: word.takeBuffer,
         word: word.buf
     };
-    cxt.state = 0; // 0 = interpret, 1 = compile
     cxt.log = function (str) { cxt.s.push(new Buffer(str, 'ascii')); };
     cxt.interpret = interpret;
     cxt.s.on('error', function (err) {
@@ -6636,7 +6937,7 @@ function main (cxt) {
 module.exports = main;
 
 }).call(this,require("buffer").Buffer)
-},{"./ast":27,"./word":36,"buffer":2,"colors/safe":82}],34:[function(require,module,exports){
+},{"./ast":27,"./word":37,"buffer":2,"colors/safe":83}],35:[function(require,module,exports){
 'use strict';
 
 // memory load/store words
@@ -6648,8 +6949,27 @@ var def = require('./def');
 function main (cxt) {
     var mem = new ArrayBuffer(0x10000); // 3.3.3 Data space
     cxt.MEMi32 = new Int32Array(mem);
+    cxt.MEMi16 = new Int16Array(mem);
+    cxt.MEMi8  = new Int8Array(mem);
+    cxt.here = 32; // in bytes
 
-    cxt.here = 0; // in bytes
+    // 0 = STATE
+    cxt.MEMi32[0] = 0; // 0 = interpret, 1 = compile
+    cxt.stateAddr = function () { return 0; };
+    cxt.getState = function () { return cxt.MEMi32[0]; };
+    cxt.setState = function (val) { cxt.MEMi32[0] = val; };
+
+    // 4 = BASE
+    cxt.MEMi32[4] = 10;
+    cxt.baseAddr = function () { return 4; };
+    cxt.getBase = function () { return cxt.MEMi32[4 >> 2]; };
+    cxt.setBase = function (val) { cxt.MEMi32[4 >> 2] = val; };
+
+    // 8 = >IN
+    cxt.MEMi32[8] = 0;
+    cxt.toinAddr = function () { return 8; };
+    cxt.getToin = function () { return cxt.MEMi32[8 >> 2]; };
+    cxt.setToin = function (val) { cxt.MEMi32[8 >> 2] = val; };
 
     def ('here', function () {
         this.dpush(this.here);
@@ -6658,16 +6978,22 @@ function main (cxt) {
     def ('!', function () {
         var t = this.dpop();
         var n = this.dpop();
-        this.MEMi32[t >> 2] = n; // TODO 32-bit write?
+        this.MEMi32[t >> 2] = n;
+    }, cxt);
+
+    def ('c!', function () {
+        var t = this.dpop();
+        var n = this.dpop();
+        this.MEMi8[t] = n;
     }, cxt);
 
     def('2!', function () {
         var addr = this.dpop();
         var x2 = this.dpop();
         var x1 = this.dpop();
-        this.MEMi32[addr >> 2] = x1; // TODO 32-bit write?
+        this.MEMi32[addr >> 2] = x2;
         addr += 4;
-        this.MEMi32[addr >> 2] = x2; // TODO 32-bit write?
+        this.MEMi32[addr >> 2] = x1;
     }, cxt);
 
 // 2@
@@ -6688,27 +7014,64 @@ function main (cxt) {
     }, cxt);
 
     def('@', function () {
-        var t = this.dpop();
-        this.dpush(this.MEMi32[t >> 2]); // TODO 32-bit read?
+        var addr = this.dpop();
+        this.dpush(this.MEMi32[addr >> 2]);
     }, cxt);
 
+    def('c@', function () {
+        var addr = this.dpop();
+        this.dpush(this.MEMi8[addr]);
+    }, cxt);
+
+    def('2@', function () {
+        var addr = this.dpop();
+        this.dpush(this.MEMi32[(addr >> 2) + 1]);
+        this.dpush(this.MEMi32[addr >> 2]);
+    }, cxt);
+
+// 6.1.0150 ,
     def (',', function () {
         var t = this.dpop();
         this.MEMi32[this.here >> 2] = t;
         this.here += 4;
     }, cxt);
 
+// 6.1.0860 C,
+    def ('c,', function () {
+        var t = this.dpop();
+        this.MEMi8[this.here] = t;
+        this.here += 1;
+    }, cxt);
+
+// 6.1.0710 ALLOT
+    def ('allot', function () {
+        this.here += Math.abs(this.dpop());
+    }, cxt);
+
+// 6.1.0706 ALIGNED
+    def ('aligned', function () {
+        this.dpush((this.dpop() + 3) & -4);
+        // this.dpush(this.dpop());
+    }, cxt);
+
+// 6.1.0705 ALIGN
+    // def ('align', function () {
+    //     // this.dpush((this.dpop() + 3) & -4);
+    //     this.dpush(this.dpop());
+    // }, cxt);
+
 }
 
 module.exports = main;
 
-},{"./def":31}],35:[function(require,module,exports){
+},{"./def":31}],36:[function(require,module,exports){
 'use strict';
 
 // stack-only words; using only .dpop .dpush
 // TODO add manipulations, double, float, return stack words
 
-var def = require('./def');
+var def = require('./def'),
+    Long = require('long');
 
 function stack (cxt) {
     cxt.DS = [];
@@ -6764,7 +7127,11 @@ function stack (cxt) {
             var t = this.dpop() | 0;
             var n = this.dpop() | 0;
             var m = this.dpop() | 0;
-            this.dpush(((m * n) / t) | 0);
+            var ddd = Long.fromInt(m);
+            ddd = ddd.mul(Long.fromInt(n));
+            ddd = ddd.div(Long.fromInt(t));
+            ddd = ddd.toInt();
+            this.dpush(ddd | 0);
         },
 
         // 6.1.0110 */MOD “star-slash-mod” (CORE)
@@ -6780,15 +7147,23 @@ function stack (cxt) {
             var t = this.dpop() | 0;
             var n = this.dpop() | 0;
             var m = this.dpop() | 0;
-            var d = (m * n);
-            this.dpush((d / t) | 0);
-            this.dpush((d % t) | 0);
+            var ddd = Long.fromInt(m);
+            ddd = ddd.mul(Long.fromInt(n));
+
+            var r0 = ddd.div(Long.fromInt(t));
+            r0 = r0.toInt();
+
+            var r1 = ddd.mod(Long.fromInt(t));
+            r1 = r1.toInt();
+
+            this.dpush(r1 | 0);
+            this.dpush(r0 | 0);
         },
         '/mod': function () {
             var t = this.dpop() | 0;
             var n = this.dpop() | 0;
-            this.dpush((n / t) | 0);
             this.dpush((n % t) | 0);
+            this.dpush((n / t) | 0);
         },
         nip: function () {
             'swap'();
@@ -6837,9 +7212,10 @@ function stack (cxt) {
         'm*': function () {
             var t = this.dpop() | 0;
             var n = this.dpop() | 0;
-            var res = (t * n);
-            this.dpush(res | 0);
-            this.dpush((res < 0) ? -1 : 0);
+            var ddd = Long.fromInt(n);
+            ddd = ddd.mul(Long.fromInt(t));
+            this.dpush(ddd.low);
+            this.dpush(ddd.high);
         },
 
         // 6.1.2360 UM* “u-m-star” (CORE)
@@ -6847,11 +7223,12 @@ function stack (cxt) {
         // Multiply u 1 by u 2, giving the unsigned double-cell product ud.
         // All values and arithmetic are unsigned.
         'um*': function () {
-            var t = this.dpop() >>> 0;
-            var n = this.dpop() >>> 0;
-            var res = (t * n);
-            this.dpush(res >>> 0);
-            this.dpush((res < 0) ? -1 : 0);
+            var t = this.dpop();
+            var n = this.dpop();
+            var ddd = Long.fromInt(n, true);
+            ddd = ddd.mul(t, true);
+            this.dpush(ddd.low);
+            this.dpush(ddd.high);
         },
 
         // 6.1.2214 SM/REM “s-m-slash-rem” (CORE)
@@ -6864,8 +7241,16 @@ function stack (cxt) {
             var t = this.dpop() | 0;
             var n = this.dpop() | 0;
             var s = this.dpop() | 0;
-            var r0 = (s / t) | 0;  // TODO i64 ?
-            var r1 = (s % t) | 0;
+            var ddd = new Long(s, n);
+
+            var ttt = Long.fromInt(t);
+
+            var r0 = ddd.div(ttt);
+            r0 = r0.toInt();
+
+            var r1 = ddd.mod(ttt);
+            r1 = r1.toInt();
+
             this.dpush(r1);
             this.dpush(r0);
         },
@@ -6880,8 +7265,16 @@ function stack (cxt) {
             var t = this.dpop() >>> 0;
             var n = this.dpop() >>> 0;
             var s = this.dpop() >>> 0;
-            var r0 = (s / t) >>> 0;  // TODO i64 ?
-            var r1 = (s % t) >>> 0;
+            var ddd = new Long(s, n, true);
+
+            var ttt = Long.fromInt(t);
+
+            var r0 = ddd.div(ttt);
+            r0 = r0.toInt();
+
+            var r1 = ddd.mod(ttt);
+            r1 = r1.toInt();
+
             this.dpush(r1);
             this.dpush(r0);
         },
@@ -6897,10 +7290,18 @@ function stack (cxt) {
             var t = this.dpop() | 0;
             var n = this.dpop() | 0;
             var s = this.dpop() | 0;
-            var r0 = (s / t) | 0;  // TODO i64 ?
-            var r1 = (s % t) | 0;
-            this.dpush(r1);
-            this.dpush(r0);
+            var ddd = new Long(s, n);
+
+            var ttt = Long.fromInt(t);
+
+            var r0 = ddd.div(ttt);
+            r0 = r0.toInt();
+
+            var r1 = ddd.mod(ttt);
+            r1 = r1.toInt();
+
+            this.dpush(r1 | 0);
+            this.dpush(r0 | 0);
         },
 
         // '?dup': null,
@@ -6910,8 +7311,9 @@ function stack (cxt) {
         // Convert the number n to the double-cell number d with the same numerical value.
         's>d': function () {
             var t = this.dpop() | 0;
-            this.dpush(t);
-            this.dpush((t < 0) ? -1 : 0);
+            var ttt = Long.fromInt(t);
+            this.dpush(ttt.low);
+            this.dpush(ttt.high);
         }
         // sign
     };
@@ -6921,12 +7323,12 @@ function stack (cxt) {
     });
 
     // x1 -- x2
-    ' 0< # ((t < 0) ? -1 : 0) ; 0<> # ((t !== 0) ? -1 : 0) ; 0> # ((t > 0) ? -1 : 0) ; 0= # ((t === 0) ? -1 : 0) ; 1+ # (t + 1) | 0 ; 1- # (t - 1) | 0 ; 2* # (t << 1) ; 2/ # (t >> 1) ; abs # Math.abs(t) ; cell+ # (t + 4) ; cells # (t * 4) ; char+ # (t + 1) ; chars # t ; invert # (t ^ -1) ; negate # ((t ^ -1) + 1) | 0 '
+    ' 0< # ((t < 0) ? -1 : 0) ; 0<> # ((t !== 0) ? -1 : 0) ; 0> # ((t > 0) ? -1 : 0) ; 0= # ((t === 0) ? -1 : 0) ; 1+ # (t + 1) | 0 ; 1- # (t - 1) | 0 ; 2* # (t << 1) ; 2/ # (t >> 1) ; abs # Math.abs(t) | 0 ; cell+ # (t + 4) | 0 ; cells # (t * 4) | 0 ; char+ # (t + 1) | 0 ; chars # t ; invert # (t ^ -1) ; negate # ((t ^ -1) + 1) | 0 '
     .split(';')
     .map(function (e) { return e.split('#'); })
     .forEach(function (e) {
         var fn;
-        eval('fn = function () { var t = this.dpop(); this.dpush(' + e[1] + '); };');
+        eval('fn = function () { var t = this.dpop() | 0; this.dpush(' + e[1] + '); };');
         def(e[0].trim(), fn, cxt);
     });
 
@@ -6936,7 +7338,7 @@ function stack (cxt) {
     .map(function (e) { return e.split('#'); })
     .forEach(function (e) {
         var fn;
-        eval('fn = function () { var t = this.dpop(); var n = this.dpop(); this.dpush(' + e[1] + '); };');
+        eval('fn = function () { var t = this.dpop() | 0; var n = this.dpop() | 0; this.dpush(' + e[1] + '); };');
         def(e[0].trim(), fn, cxt);
     });
 
@@ -6944,7 +7346,7 @@ function stack (cxt) {
 
 module.exports = stack;
 
-},{"./def":31}],36:[function(require,module,exports){
+},{"./def":31,"long":107}],37:[function(require,module,exports){
 'use strict';
 
 function ArrayBuffer2string (ar) {
@@ -7141,10 +7543,10 @@ module.exports = {
     arr: arr
 };
 
-},{}],37:[function(require,module,exports){
+},{}],38:[function(require,module,exports){
 module.exports = require('./lib/chai');
 
-},{"./lib/chai":38}],38:[function(require,module,exports){
+},{"./lib/chai":39}],39:[function(require,module,exports){
 /*!
  * chai
  * Copyright(c) 2011-2014 Jake Luer <jake@alogicalparadox.com>
@@ -7239,7 +7641,7 @@ exports.use(should);
 var assert = require('./chai/interface/assert');
 exports.use(assert);
 
-},{"./chai/assertion":39,"./chai/config":40,"./chai/core/assertions":41,"./chai/interface/assert":42,"./chai/interface/expect":43,"./chai/interface/should":44,"./chai/utils":58,"assertion-error":66}],39:[function(require,module,exports){
+},{"./chai/assertion":40,"./chai/config":41,"./chai/core/assertions":42,"./chai/interface/assert":43,"./chai/interface/expect":44,"./chai/interface/should":45,"./chai/utils":59,"assertion-error":67}],40:[function(require,module,exports){
 /*!
  * chai
  * http://chaijs.com
@@ -7372,7 +7774,7 @@ module.exports = function (_chai, util) {
   });
 };
 
-},{"./config":40}],40:[function(require,module,exports){
+},{"./config":41}],41:[function(require,module,exports){
 module.exports = {
 
   /**
@@ -7429,7 +7831,7 @@ module.exports = {
 
 };
 
-},{}],41:[function(require,module,exports){
+},{}],42:[function(require,module,exports){
 /*!
  * chai
  * http://chaijs.com
@@ -9246,7 +9648,7 @@ module.exports = function (chai, _) {
   });
 };
 
-},{}],42:[function(require,module,exports){
+},{}],43:[function(require,module,exports){
 /*!
  * chai
  * Copyright(c) 2011-2014 Jake Luer <jake@alogicalparadox.com>
@@ -10797,7 +11199,7 @@ module.exports = function (chai, util) {
   ('isNotFrozen', 'notFrozen');
 };
 
-},{}],43:[function(require,module,exports){
+},{}],44:[function(require,module,exports){
 /*!
  * chai
  * Copyright(c) 2011-2014 Jake Luer <jake@alogicalparadox.com>
@@ -10832,7 +11234,7 @@ module.exports = function (chai, util) {
   };
 };
 
-},{}],44:[function(require,module,exports){
+},{}],45:[function(require,module,exports){
 /*!
  * chai
  * Copyright(c) 2011-2014 Jake Luer <jake@alogicalparadox.com>
@@ -10932,7 +11334,7 @@ module.exports = function (chai, util) {
   chai.Should = loadShould;
 };
 
-},{}],45:[function(require,module,exports){
+},{}],46:[function(require,module,exports){
 /*!
  * Chai - addChainingMethod utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11045,7 +11447,7 @@ module.exports = function (ctx, name, method, chainingBehavior) {
   });
 };
 
-},{"../config":40,"./flag":49,"./transferFlags":65}],46:[function(require,module,exports){
+},{"../config":41,"./flag":50,"./transferFlags":66}],47:[function(require,module,exports){
 /*!
  * Chai - addMethod utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11090,7 +11492,7 @@ module.exports = function (ctx, name, method) {
   };
 };
 
-},{"../config":40,"./flag":49}],47:[function(require,module,exports){
+},{"../config":41,"./flag":50}],48:[function(require,module,exports){
 /*!
  * Chai - addProperty utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11139,7 +11541,7 @@ module.exports = function (ctx, name, getter) {
   });
 };
 
-},{"../config":40,"./flag":49}],48:[function(require,module,exports){
+},{"../config":41,"./flag":50}],49:[function(require,module,exports){
 /*!
  * Chai - expectTypes utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11182,7 +11584,7 @@ module.exports = function (obj, types) {
   }
 };
 
-},{"./flag":49,"assertion-error":66,"type-detect":71}],49:[function(require,module,exports){
+},{"./flag":50,"assertion-error":67,"type-detect":72}],50:[function(require,module,exports){
 /*!
  * Chai - flag utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11216,7 +11618,7 @@ module.exports = function (obj, key, value) {
   }
 };
 
-},{}],50:[function(require,module,exports){
+},{}],51:[function(require,module,exports){
 /*!
  * Chai - getActual utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11236,7 +11638,7 @@ module.exports = function (obj, args) {
   return args.length > 4 ? args[4] : obj._obj;
 };
 
-},{}],51:[function(require,module,exports){
+},{}],52:[function(require,module,exports){
 /*!
  * Chai - getEnumerableProperties utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11263,7 +11665,7 @@ module.exports = function getEnumerableProperties(object) {
   return result;
 };
 
-},{}],52:[function(require,module,exports){
+},{}],53:[function(require,module,exports){
 /*!
  * Chai - message composition utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11315,7 +11717,7 @@ module.exports = function (obj, args) {
   return flagMsg ? flagMsg + ': ' + msg : msg;
 };
 
-},{"./flag":49,"./getActual":50,"./inspect":59,"./objDisplay":60}],53:[function(require,module,exports){
+},{"./flag":50,"./getActual":51,"./inspect":60,"./objDisplay":61}],54:[function(require,module,exports){
 /*!
  * Chai - getName utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11337,7 +11739,7 @@ module.exports = function (func) {
   return match && match[1] ? match[1] : "";
 };
 
-},{}],54:[function(require,module,exports){
+},{}],55:[function(require,module,exports){
 /*!
  * Chai - getPathInfo utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11449,7 +11851,7 @@ function _getPathValue (parsed, obj, index) {
   return res;
 }
 
-},{"./hasProperty":57}],55:[function(require,module,exports){
+},{"./hasProperty":58}],56:[function(require,module,exports){
 /*!
  * Chai - getPathValue utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11493,7 +11895,7 @@ module.exports = function(path, obj) {
   return info.value;
 }; 
 
-},{"./getPathInfo":54}],56:[function(require,module,exports){
+},{"./getPathInfo":55}],57:[function(require,module,exports){
 /*!
  * Chai - getProperties utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11530,7 +11932,7 @@ module.exports = function getProperties(object) {
   return result;
 };
 
-},{}],57:[function(require,module,exports){
+},{}],58:[function(require,module,exports){
 /*!
  * Chai - hasProperty utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -11595,7 +11997,7 @@ module.exports = function hasProperty(name, obj) {
   return name in obj;
 };
 
-},{"type-detect":71}],58:[function(require,module,exports){
+},{"type-detect":72}],59:[function(require,module,exports){
 /*!
  * chai
  * Copyright(c) 2011 Jake Luer <jake@alogicalparadox.com>
@@ -11727,7 +12129,7 @@ exports.addChainableMethod = require('./addChainableMethod');
 
 exports.overwriteChainableMethod = require('./overwriteChainableMethod');
 
-},{"./addChainableMethod":45,"./addMethod":46,"./addProperty":47,"./expectTypes":48,"./flag":49,"./getActual":50,"./getMessage":52,"./getName":53,"./getPathInfo":54,"./getPathValue":55,"./hasProperty":57,"./inspect":59,"./objDisplay":60,"./overwriteChainableMethod":61,"./overwriteMethod":62,"./overwriteProperty":63,"./test":64,"./transferFlags":65,"deep-eql":67,"type-detect":71}],59:[function(require,module,exports){
+},{"./addChainableMethod":46,"./addMethod":47,"./addProperty":48,"./expectTypes":49,"./flag":50,"./getActual":51,"./getMessage":53,"./getName":54,"./getPathInfo":55,"./getPathValue":56,"./hasProperty":58,"./inspect":60,"./objDisplay":61,"./overwriteChainableMethod":62,"./overwriteMethod":63,"./overwriteProperty":64,"./test":65,"./transferFlags":66,"deep-eql":68,"type-detect":72}],60:[function(require,module,exports){
 // This is (almost) directly from Node.js utils
 // https://github.com/joyent/node/blob/f8c335d0caf47f16d31413f89aa28eda3878e3aa/lib/util.js
 
@@ -12062,7 +12464,7 @@ function objectToString(o) {
   return Object.prototype.toString.call(o);
 }
 
-},{"./getEnumerableProperties":51,"./getName":53,"./getProperties":56}],60:[function(require,module,exports){
+},{"./getEnumerableProperties":52,"./getName":54,"./getProperties":57}],61:[function(require,module,exports){
 /*!
  * Chai - flag utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -12113,7 +12515,7 @@ module.exports = function (obj) {
   }
 };
 
-},{"../config":40,"./inspect":59}],61:[function(require,module,exports){
+},{"../config":41,"./inspect":60}],62:[function(require,module,exports){
 /*!
  * Chai - overwriteChainableMethod utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -12168,7 +12570,7 @@ module.exports = function (ctx, name, method, chainingBehavior) {
   };
 };
 
-},{}],62:[function(require,module,exports){
+},{}],63:[function(require,module,exports){
 /*!
  * Chai - overwriteMethod utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -12221,7 +12623,7 @@ module.exports = function (ctx, name, method) {
   }
 };
 
-},{}],63:[function(require,module,exports){
+},{}],64:[function(require,module,exports){
 /*!
  * Chai - overwriteProperty utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -12277,7 +12679,7 @@ module.exports = function (ctx, name, getter) {
   });
 };
 
-},{}],64:[function(require,module,exports){
+},{}],65:[function(require,module,exports){
 /*!
  * Chai - test utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -12305,7 +12707,7 @@ module.exports = function (obj, args) {
   return negate ? !expr : expr;
 };
 
-},{"./flag":49}],65:[function(require,module,exports){
+},{"./flag":50}],66:[function(require,module,exports){
 /*!
  * Chai - transferFlags utility
  * Copyright(c) 2012-2014 Jake Luer <jake@alogicalparadox.com>
@@ -12351,7 +12753,7 @@ module.exports = function (assertion, object, includeAll) {
   }
 };
 
-},{}],66:[function(require,module,exports){
+},{}],67:[function(require,module,exports){
 /*!
  * assertion-error
  * Copyright(c) 2013 Jake Luer <jake@qualiancy.com>
@@ -12465,10 +12867,10 @@ AssertionError.prototype.toJSON = function (stack) {
   return props;
 };
 
-},{}],67:[function(require,module,exports){
+},{}],68:[function(require,module,exports){
 module.exports = require('./lib/eql');
 
-},{"./lib/eql":68}],68:[function(require,module,exports){
+},{"./lib/eql":69}],69:[function(require,module,exports){
 /*!
  * deep-eql
  * Copyright(c) 2013 Jake Luer <jake@alogicalparadox.com>
@@ -12727,10 +13129,10 @@ function objectEqual(a, b, m) {
   return true;
 }
 
-},{"buffer":2,"type-detect":69}],69:[function(require,module,exports){
+},{"buffer":2,"type-detect":70}],70:[function(require,module,exports){
 module.exports = require('./lib/type');
 
-},{"./lib/type":70}],70:[function(require,module,exports){
+},{"./lib/type":71}],71:[function(require,module,exports){
 /*!
  * type-detect
  * Copyright(c) 2013 jake luer <jake@alogicalparadox.com>
@@ -12874,9 +13276,9 @@ Library.prototype.test = function (obj, type) {
   }
 };
 
-},{}],71:[function(require,module,exports){
-arguments[4][69][0].apply(exports,arguments)
-},{"./lib/type":72,"dup":69}],72:[function(require,module,exports){
+},{}],72:[function(require,module,exports){
+arguments[4][70][0].apply(exports,arguments)
+},{"./lib/type":73,"dup":70}],73:[function(require,module,exports){
 /*!
  * type-detect
  * Copyright(c) 2013 jake luer <jake@alogicalparadox.com>
@@ -13012,7 +13414,7 @@ Library.prototype.test = function(obj, type) {
   }
 };
 
-},{}],73:[function(require,module,exports){
+},{}],74:[function(require,module,exports){
 /*
 
 The MIT License (MIT)
@@ -13200,7 +13602,7 @@ for (var map in colors.maps) {
 }
 
 defineProps(colors, init());
-},{"./custom/trap":74,"./custom/zalgo":75,"./maps/america":76,"./maps/rainbow":77,"./maps/random":78,"./maps/zebra":79,"./styles":80,"./system/supports-colors":81}],74:[function(require,module,exports){
+},{"./custom/trap":75,"./custom/zalgo":76,"./maps/america":77,"./maps/rainbow":78,"./maps/random":79,"./maps/zebra":80,"./styles":81,"./system/supports-colors":82}],75:[function(require,module,exports){
 module['exports'] = function runTheTrap (text, options) {
   var result = "";
   text = text || "Run the trap, drop the bass";
@@ -13247,7 +13649,7 @@ module['exports'] = function runTheTrap (text, options) {
 
 }
 
-},{}],75:[function(require,module,exports){
+},{}],76:[function(require,module,exports){
 // please no
 module['exports'] = function zalgo(text, options) {
   text = text || "   he is here   ";
@@ -13353,7 +13755,7 @@ module['exports'] = function zalgo(text, options) {
   return heComes(text, options);
 }
 
-},{}],76:[function(require,module,exports){
+},{}],77:[function(require,module,exports){
 var colors = require('../colors');
 
 module['exports'] = (function() {
@@ -13366,7 +13768,7 @@ module['exports'] = (function() {
     }
   }
 })();
-},{"../colors":73}],77:[function(require,module,exports){
+},{"../colors":74}],78:[function(require,module,exports){
 var colors = require('../colors');
 
 module['exports'] = (function () {
@@ -13381,7 +13783,7 @@ module['exports'] = (function () {
 })();
 
 
-},{"../colors":73}],78:[function(require,module,exports){
+},{"../colors":74}],79:[function(require,module,exports){
 var colors = require('../colors');
 
 module['exports'] = (function () {
@@ -13390,13 +13792,13 @@ module['exports'] = (function () {
     return letter === " " ? letter : colors[available[Math.round(Math.random() * (available.length - 1))]](letter);
   };
 })();
-},{"../colors":73}],79:[function(require,module,exports){
+},{"../colors":74}],80:[function(require,module,exports){
 var colors = require('../colors');
 
 module['exports'] = function (letter, i, exploded) {
   return i % 2 === 0 ? letter : colors.inverse(letter);
 };
-},{"../colors":73}],80:[function(require,module,exports){
+},{"../colors":74}],81:[function(require,module,exports){
 /*
 The MIT License (MIT)
 
@@ -13474,7 +13876,7 @@ Object.keys(codes).forEach(function (key) {
   style.open = '\u001b[' + val[0] + 'm';
   style.close = '\u001b[' + val[1] + 'm';
 });
-},{}],81:[function(require,module,exports){
+},{}],82:[function(require,module,exports){
 (function (process){
 /*
 The MIT License (MIT)
@@ -13538,7 +13940,7 @@ module.exports = (function () {
   return false;
 })();
 }).call(this,require('_process'))
-},{"_process":11}],82:[function(require,module,exports){
+},{"_process":11}],83:[function(require,module,exports){
 //
 // Remark: Requiring this file will use the "safe" colors API which will not touch String.prototype
 //
@@ -13548,7 +13950,7 @@ module.exports = (function () {
 //
 var colors = require('./lib/colors');
 module['exports'] = colors;
-},{"./lib/colors":73}],83:[function(require,module,exports){
+},{"./lib/colors":74}],84:[function(require,module,exports){
 (function (global){
 /*
   Copyright (C) 2012-2014 Yusuke Suzuki <utatane.tea@gmail.com>
@@ -16128,7 +16530,7 @@ module['exports'] = colors;
 /* vim: set sw=4 ts=4 et tw=80 : */
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./package.json":102,"estraverse":84,"esutils":88,"source-map":89}],84:[function(require,module,exports){
+},{"./package.json":103,"estraverse":85,"esutils":89,"source-map":90}],85:[function(require,module,exports){
 /*
   Copyright (C) 2012-2013 Yusuke Suzuki <utatane.tea@gmail.com>
   Copyright (C) 2012 Ariya Hidayat <ariya.hidayat@gmail.com>
@@ -16975,7 +17377,7 @@ module['exports'] = colors;
 }));
 /* vim: set sw=4 ts=4 et tw=80 : */
 
-},{}],85:[function(require,module,exports){
+},{}],86:[function(require,module,exports){
 /*
   Copyright (C) 2013 Yusuke Suzuki <utatane.tea@gmail.com>
 
@@ -17121,7 +17523,7 @@ module['exports'] = colors;
 }());
 /* vim: set sw=4 ts=4 et tw=80 : */
 
-},{}],86:[function(require,module,exports){
+},{}],87:[function(require,module,exports){
 /*
   Copyright (C) 2013-2014 Yusuke Suzuki <utatane.tea@gmail.com>
   Copyright (C) 2014 Ivan Nikulin <ifaaan@gmail.com>
@@ -17258,7 +17660,7 @@ module['exports'] = colors;
 }());
 /* vim: set sw=4 ts=4 et tw=80 : */
 
-},{}],87:[function(require,module,exports){
+},{}],88:[function(require,module,exports){
 /*
   Copyright (C) 2013 Yusuke Suzuki <utatane.tea@gmail.com>
 
@@ -17425,7 +17827,7 @@ module['exports'] = colors;
 }());
 /* vim: set sw=4 ts=4 et tw=80 : */
 
-},{"./code":86}],88:[function(require,module,exports){
+},{"./code":87}],89:[function(require,module,exports){
 /*
   Copyright (C) 2013 Yusuke Suzuki <utatane.tea@gmail.com>
 
@@ -17460,7 +17862,7 @@ module['exports'] = colors;
 }());
 /* vim: set sw=4 ts=4 et tw=80 : */
 
-},{"./ast":85,"./code":86,"./keyword":87}],89:[function(require,module,exports){
+},{"./ast":86,"./code":87,"./keyword":88}],90:[function(require,module,exports){
 /*
  * Copyright 2009-2011 Mozilla Foundation and contributors
  * Licensed under the New BSD license. See LICENSE.txt or:
@@ -17470,7 +17872,7 @@ exports.SourceMapGenerator = require('./source-map/source-map-generator').Source
 exports.SourceMapConsumer = require('./source-map/source-map-consumer').SourceMapConsumer;
 exports.SourceNode = require('./source-map/source-node').SourceNode;
 
-},{"./source-map/source-map-consumer":97,"./source-map/source-map-generator":98,"./source-map/source-node":99}],90:[function(require,module,exports){
+},{"./source-map/source-map-consumer":98,"./source-map/source-map-generator":99,"./source-map/source-node":100}],91:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -17569,7 +17971,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"./util":100,"amdefine":101}],91:[function(require,module,exports){
+},{"./util":101,"amdefine":102}],92:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -17713,7 +18115,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"./base64":92,"amdefine":101}],92:[function(require,module,exports){
+},{"./base64":93,"amdefine":102}],93:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -17757,7 +18159,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"amdefine":101}],93:[function(require,module,exports){
+},{"amdefine":102}],94:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -18179,7 +18581,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"./array-set":90,"./base64-vlq":91,"./binary-search":94,"./source-map-consumer":97,"./util":100,"amdefine":101}],94:[function(require,module,exports){
+},{"./array-set":91,"./base64-vlq":92,"./binary-search":95,"./source-map-consumer":98,"./util":101,"amdefine":102}],95:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -18261,7 +18663,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"amdefine":101}],95:[function(require,module,exports){
+},{"amdefine":102}],96:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -18566,7 +18968,7 @@ define(function (require, exports, module) {
   exports.IndexedSourceMapConsumer = IndexedSourceMapConsumer;
 });
 
-},{"./basic-source-map-consumer":93,"./binary-search":94,"./source-map-consumer":97,"./util":100,"amdefine":101}],96:[function(require,module,exports){
+},{"./basic-source-map-consumer":94,"./binary-search":95,"./source-map-consumer":98,"./util":101,"amdefine":102}],97:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2014 Mozilla Foundation and contributors
@@ -18654,7 +19056,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"./util":100,"amdefine":101}],97:[function(require,module,exports){
+},{"./util":101,"amdefine":102}],98:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -18878,7 +19280,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"./basic-source-map-consumer":93,"./indexed-source-map-consumer":95,"./util":100,"amdefine":101}],98:[function(require,module,exports){
+},{"./basic-source-map-consumer":94,"./indexed-source-map-consumer":96,"./util":101,"amdefine":102}],99:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -19280,7 +19682,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"./array-set":90,"./base64-vlq":91,"./mapping-list":96,"./util":100,"amdefine":101}],99:[function(require,module,exports){
+},{"./array-set":91,"./base64-vlq":92,"./mapping-list":97,"./util":101,"amdefine":102}],100:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -19696,7 +20098,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"./source-map-generator":98,"./util":100,"amdefine":101}],100:[function(require,module,exports){
+},{"./source-map-generator":99,"./util":101,"amdefine":102}],101:[function(require,module,exports){
 /* -*- Mode: js; js-indent-level: 2; -*- */
 /*
  * Copyright 2011 Mozilla Foundation and contributors
@@ -20017,7 +20419,7 @@ define(function (require, exports, module) {
 
 });
 
-},{"amdefine":101}],101:[function(require,module,exports){
+},{"amdefine":102}],102:[function(require,module,exports){
 (function (process,__filename){
 /** vim: et:ts=4:sw=4:sts=4
  * @license amdefine 1.0.0 Copyright (c) 2011-2015, The Dojo Foundation All Rights Reserved.
@@ -20322,7 +20724,7 @@ function amdefine(module, requireFn) {
 module.exports = amdefine;
 
 }).call(this,require('_process'),"/node_modules/forth/node_modules/escodegen/node_modules/source-map/node_modules/amdefine/amdefine.js")
-},{"_process":11,"path":10}],102:[function(require,module,exports){
+},{"_process":11,"path":10}],103:[function(require,module,exports){
 module.exports={
   "name": "escodegen",
   "description": "ECMAScript code generator",
@@ -20411,7 +20813,7 @@ module.exports={
   "readme": "ERROR: No README data found!"
 }
 
-},{}],103:[function(require,module,exports){
+},{}],104:[function(require,module,exports){
 /*
   Copyright (c) jQuery Foundation, Inc. and Contributors, All Rights Reserved.
 
@@ -26156,7 +26558,7 @@ module.exports={
 }));
 /* vim: set sw=4 ts=4 et tw=80 : */
 
-},{}],104:[function(require,module,exports){
+},{}],105:[function(require,module,exports){
 /*
   Copyright (C) 2012-2013 Yusuke Suzuki <utatane.tea@gmail.com>
   Copyright (C) 2012 Ariya Hidayat <ariya.hidayat@gmail.com>
@@ -27001,7 +27403,7 @@ module.exports={
 }(exports));
 /* vim: set sw=4 ts=4 et tw=80 : */
 
-},{"./package.json":105}],105:[function(require,module,exports){
+},{"./package.json":106}],106:[function(require,module,exports){
 module.exports={
   "name": "estraverse",
   "description": "ECMAScript JS AST traversal functions",
@@ -27069,10 +27471,1107 @@ module.exports={
   "readme": "ERROR: No README data found!"
 }
 
-},{}],106:[function(require,module,exports){
+},{}],107:[function(require,module,exports){
+/*
+ Copyright 2013 Daniel Wirtz <dcode@dcode.io>
+ Copyright 2009 The Closure Library Authors. All Rights Reserved.
+
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+
+ http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS-IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+ */
+
+/**
+ * @license long.js (c) 2013 Daniel Wirtz <dcode@dcode.io>
+ * Released under the Apache License, Version 2.0
+ * see: https://github.com/dcodeIO/long.js for details
+ */
+(function(global, factory) {
+
+    /* AMD */ if (typeof define === 'function' && define["amd"])
+        define([], factory);
+    /* CommonJS */ else if (typeof require === 'function' && typeof module === "object" && module && module["exports"])
+        module["exports"] = factory();
+    /* Global */ else
+        (global["dcodeIO"] = global["dcodeIO"] || {})["Long"] = factory();
+
+})(this, function() {
+    "use strict";
+
+    /**
+     * Constructs a 64 bit two's-complement integer, given its low and high 32 bit values as *signed* integers.
+     *  See the from* functions below for more convenient ways of constructing Longs.
+     * @exports Long
+     * @class A Long class for representing a 64 bit two's-complement integer value.
+     * @param {number} low The low (signed) 32 bits of the long
+     * @param {number} high The high (signed) 32 bits of the long
+     * @param {boolean=} unsigned Whether unsigned or not, defaults to `false` for signed
+     * @constructor
+     */
+    function Long(low, high, unsigned) {
+
+        /**
+         * The low 32 bits as a signed value.
+         * @type {number}
+         * @expose
+         */
+        this.low = low|0;
+
+        /**
+         * The high 32 bits as a signed value.
+         * @type {number}
+         * @expose
+         */
+        this.high = high|0;
+
+        /**
+         * Whether unsigned or not.
+         * @type {boolean}
+         * @expose
+         */
+        this.unsigned = !!unsigned;
+    }
+
+    // The internal representation of a long is the two given signed, 32-bit values.
+    // We use 32-bit pieces because these are the size of integers on which
+    // Javascript performs bit-operations.  For operations like addition and
+    // multiplication, we split each number into 16 bit pieces, which can easily be
+    // multiplied within Javascript's floating-point representation without overflow
+    // or change in sign.
+    //
+    // In the algorithms below, we frequently reduce the negative case to the
+    // positive case by negating the input(s) and then post-processing the result.
+    // Note that we must ALWAYS check specially whether those values are MIN_VALUE
+    // (-2^63) because -MIN_VALUE == MIN_VALUE (since 2^63 cannot be represented as
+    // a positive number, it overflows back into a negative).  Not handling this
+    // case would often result in infinite recursion.
+    //
+    // Common constant values ZERO, ONE, NEG_ONE, etc. are defined below the from*
+    // methods on which they depend.
+
+    /**
+     * An indicator used to reliably determine if an object is a Long or not.
+     * @type {boolean}
+     * @const
+     * @expose
+     * @private
+     */
+    Long.__isLong__;
+
+    Object.defineProperty(Long.prototype, "__isLong__", {
+        value: true,
+        enumerable: false,
+        configurable: false
+    });
+
+    /**
+     * Tests if the specified object is a Long.
+     * @param {*} obj Object
+     * @returns {boolean}
+     * @expose
+     */
+    Long.isLong = function isLong(obj) {
+        return (obj && obj["__isLong__"]) === true;
+    };
+
+    /**
+     * A cache of the Long representations of small integer values.
+     * @type {!Object}
+     * @inner
+     */
+    var INT_CACHE = {};
+
+    /**
+     * A cache of the Long representations of small unsigned integer values.
+     * @type {!Object}
+     * @inner
+     */
+    var UINT_CACHE = {};
+
+    /**
+     * Returns a Long representing the given 32 bit integer value.
+     * @param {number} value The 32 bit integer in question
+     * @param {boolean=} unsigned Whether unsigned or not, defaults to `false` for signed
+     * @returns {!Long} The corresponding Long value
+     * @expose
+     */
+    Long.fromInt = function fromInt(value, unsigned) {
+        var obj, cachedObj, cache;
+        if (!unsigned) {
+            value = value | 0;
+            if (cache = (-128 <= value && value < 128)) {
+                cachedObj = INT_CACHE[value];
+                if (cachedObj)
+                    return cachedObj;
+            }
+            obj = new Long(value, value < 0 ? -1 : 0, false);
+            if (cache)
+                INT_CACHE[value] = obj;
+            return obj;
+        } else {
+            value = value >>> 0;
+            if (cache = (0 <= value && value < 256)) {
+                cachedObj = UINT_CACHE[value];
+                if (cachedObj)
+                    return cachedObj;
+            }
+            obj = new Long(value, (value | 0) < 0 ? -1 : 0, true);
+            if (cache)
+                UINT_CACHE[value] = obj;
+            return obj;
+        }
+    };
+
+    /**
+     * Returns a Long representing the given value, provided that it is a finite number. Otherwise, zero is returned.
+     * @param {number} value The number in question
+     * @param {boolean=} unsigned Whether unsigned or not, defaults to `false` for signed
+     * @returns {!Long} The corresponding Long value
+     * @expose
+     */
+    Long.fromNumber = function fromNumber(value, unsigned) {
+        unsigned = !!unsigned;
+        if (isNaN(value) || !isFinite(value))
+            return Long.ZERO;
+        if (!unsigned && value <= -TWO_PWR_63_DBL)
+            return Long.MIN_VALUE;
+        if (!unsigned && value + 1 >= TWO_PWR_63_DBL)
+            return Long.MAX_VALUE;
+        if (unsigned && value >= TWO_PWR_64_DBL)
+            return Long.MAX_UNSIGNED_VALUE;
+        if (value < 0)
+            return Long.fromNumber(-value, unsigned).neg();
+        return new Long((value % TWO_PWR_32_DBL) | 0, (value / TWO_PWR_32_DBL) | 0, unsigned);
+    };
+
+    /**
+     * Returns a Long representing the 64 bit integer that comes by concatenating the given low and high bits. Each is
+     *  assumed to use 32 bits.
+     * @param {number} lowBits The low 32 bits
+     * @param {number} highBits The high 32 bits
+     * @param {boolean=} unsigned Whether unsigned or not, defaults to `false` for signed
+     * @returns {!Long} The corresponding Long value
+     * @expose
+     */
+    Long.fromBits = function fromBits(lowBits, highBits, unsigned) {
+        return new Long(lowBits, highBits, unsigned);
+    };
+
+    /**
+     * Returns a Long representation of the given string, written using the specified radix.
+     * @param {string} str The textual representation of the Long
+     * @param {(boolean|number)=} unsigned Whether unsigned or not, defaults to `false` for signed
+     * @param {number=} radix The radix in which the text is written (2-36), defaults to 10
+     * @returns {!Long} The corresponding Long value
+     * @expose
+     */
+    Long.fromString = function fromString(str, unsigned, radix) {
+        if (str.length === 0)
+            throw Error('number format error: empty string');
+        if (str === "NaN" || str === "Infinity" || str === "+Infinity" || str === "-Infinity")
+            return Long.ZERO;
+        if (typeof unsigned === 'number') // For goog.math.long compatibility
+            radix = unsigned,
+            unsigned = false;
+        radix = radix || 10;
+        if (radix < 2 || 36 < radix)
+            throw Error('radix out of range: ' + radix);
+
+        var p;
+        if ((p = str.indexOf('-')) > 0)
+            throw Error('number format error: interior "-" character: ' + str);
+        else if (p === 0)
+            return Long.fromString(str.substring(1), unsigned, radix).neg();
+
+        // Do several (8) digits each time through the loop, so as to
+        // minimize the calls to the very expensive emulated div.
+        var radixToPower = Long.fromNumber(Math.pow(radix, 8));
+
+        var result = Long.ZERO;
+        for (var i = 0; i < str.length; i += 8) {
+            var size = Math.min(8, str.length - i);
+            var value = parseInt(str.substring(i, i + size), radix);
+            if (size < 8) {
+                var power = Long.fromNumber(Math.pow(radix, size));
+                result = result.mul(power).add(Long.fromNumber(value));
+            } else {
+                result = result.mul(radixToPower);
+                result = result.add(Long.fromNumber(value));
+            }
+        }
+        result.unsigned = unsigned;
+        return result;
+    };
+
+    /**
+     * Converts the specified value to a Long.
+     * @param {!Long|number|string|!{low: number, high: number, unsigned: boolean}} val Value
+     * @returns {!Long}
+     * @expose
+     */
+    Long.fromValue = function fromValue(val) {
+        if (val /* is compatible */ instanceof Long)
+            return val;
+        if (typeof val === 'number')
+            return Long.fromNumber(val);
+        if (typeof val === 'string')
+            return Long.fromString(val);
+        // Throws for non-objects, converts non-instanceof Long:
+        return new Long(val.low, val.high, val.unsigned);
+    };
+
+    // NOTE: the compiler should inline these constant values below and then remove these variables, so there should be
+    // no runtime penalty for these.
+
+    /**
+     * @type {number}
+     * @const
+     * @inner
+     */
+    var TWO_PWR_16_DBL = 1 << 16;
+
+    /**
+     * @type {number}
+     * @const
+     * @inner
+     */
+    var TWO_PWR_24_DBL = 1 << 24;
+
+    /**
+     * @type {number}
+     * @const
+     * @inner
+     */
+    var TWO_PWR_32_DBL = TWO_PWR_16_DBL * TWO_PWR_16_DBL;
+
+    /**
+     * @type {number}
+     * @const
+     * @inner
+     */
+    var TWO_PWR_64_DBL = TWO_PWR_32_DBL * TWO_PWR_32_DBL;
+
+    /**
+     * @type {number}
+     * @const
+     * @inner
+     */
+    var TWO_PWR_63_DBL = TWO_PWR_64_DBL / 2;
+
+    /**
+     * @type {!Long}
+     * @const
+     * @inner
+     */
+    var TWO_PWR_24 = Long.fromInt(TWO_PWR_24_DBL);
+
+    /**
+     * Signed zero.
+     * @type {!Long}
+     * @expose
+     */
+    Long.ZERO = Long.fromInt(0);
+
+    /**
+     * Unsigned zero.
+     * @type {!Long}
+     * @expose
+     */
+    Long.UZERO = Long.fromInt(0, true);
+
+    /**
+     * Signed one.
+     * @type {!Long}
+     * @expose
+     */
+    Long.ONE = Long.fromInt(1);
+
+    /**
+     * Unsigned one.
+     * @type {!Long}
+     * @expose
+     */
+    Long.UONE = Long.fromInt(1, true);
+
+    /**
+     * Signed negative one.
+     * @type {!Long}
+     * @expose
+     */
+    Long.NEG_ONE = Long.fromInt(-1);
+
+    /**
+     * Maximum signed value.
+     * @type {!Long}
+     * @expose
+     */
+    Long.MAX_VALUE = new Long(0xFFFFFFFF|0, 0x7FFFFFFF|0, false);
+
+    /**
+     * Maximum unsigned value.
+     * @type {!Long}
+     * @expose
+     */
+    Long.MAX_UNSIGNED_VALUE = new Long(0xFFFFFFFF|0, 0xFFFFFFFF|0, true);
+
+    /**
+     * Minimum signed value.
+     * @type {!Long}
+     * @expose
+     */
+    Long.MIN_VALUE = new Long(0, 0x80000000|0, false);
+
+    /**
+     * @alias Long.prototype
+     * @inner
+     */
+    var LongPrototype = Long.prototype;
+
+    /**
+     * Converts the Long to a 32 bit integer, assuming it is a 32 bit integer.
+     * @returns {number}
+     * @expose
+     */
+    LongPrototype.toInt = function toInt() {
+        return this.unsigned ? this.low >>> 0 : this.low;
+    };
+
+    /**
+     * Converts the Long to a the nearest floating-point representation of this value (double, 53 bit mantissa).
+     * @returns {number}
+     * @expose
+     */
+    LongPrototype.toNumber = function toNumber() {
+        if (this.unsigned) {
+            return ((this.high >>> 0) * TWO_PWR_32_DBL) + (this.low >>> 0);
+        }
+        return this.high * TWO_PWR_32_DBL + (this.low >>> 0);
+    };
+
+    /**
+     * Converts the Long to a string written in the specified radix.
+     * @param {number=} radix Radix (2-36), defaults to 10
+     * @returns {string}
+     * @override
+     * @throws {RangeError} If `radix` is out of range
+     * @expose
+     */
+    LongPrototype.toString = function toString(radix) {
+        radix = radix || 10;
+        if (radix < 2 || 36 < radix)
+            throw RangeError('radix out of range: ' + radix);
+        if (this.isZero())
+            return '0';
+        var rem;
+        if (this.isNegative()) { // Unsigned Longs are never negative
+            if (this.eq(Long.MIN_VALUE)) {
+                // We need to change the Long value before it can be negated, so we remove
+                // the bottom-most digit in this base and then recurse to do the rest.
+                var radixLong = Long.fromNumber(radix);
+                var div = this.div(radixLong);
+                rem = div.mul(radixLong).sub(this);
+                return div.toString(radix) + rem.toInt().toString(radix);
+            } else
+                return '-' + this.neg().toString(radix);
+        }
+
+        // Do several (6) digits each time through the loop, so as to
+        // minimize the calls to the very expensive emulated div.
+        var radixToPower = Long.fromNumber(Math.pow(radix, 6), this.unsigned);
+        rem = this;
+        var result = '';
+        while (true) {
+            var remDiv = rem.div(radixToPower),
+                intval = rem.sub(remDiv.mul(radixToPower)).toInt() >>> 0,
+                digits = intval.toString(radix);
+            rem = remDiv;
+            if (rem.isZero())
+                return digits + result;
+            else {
+                while (digits.length < 6)
+                    digits = '0' + digits;
+                result = '' + digits + result;
+            }
+        }
+    };
+
+    /**
+     * Gets the high 32 bits as a signed integer.
+     * @returns {number} Signed high bits
+     * @expose
+     */
+    LongPrototype.getHighBits = function getHighBits() {
+        return this.high;
+    };
+
+    /**
+     * Gets the high 32 bits as an unsigned integer.
+     * @returns {number} Unsigned high bits
+     * @expose
+     */
+    LongPrototype.getHighBitsUnsigned = function getHighBitsUnsigned() {
+        return this.high >>> 0;
+    };
+
+    /**
+     * Gets the low 32 bits as a signed integer.
+     * @returns {number} Signed low bits
+     * @expose
+     */
+    LongPrototype.getLowBits = function getLowBits() {
+        return this.low;
+    };
+
+    /**
+     * Gets the low 32 bits as an unsigned integer.
+     * @returns {number} Unsigned low bits
+     * @expose
+     */
+    LongPrototype.getLowBitsUnsigned = function getLowBitsUnsigned() {
+        return this.low >>> 0;
+    };
+
+    /**
+     * Gets the number of bits needed to represent the absolute value of this Long.
+     * @returns {number}
+     * @expose
+     */
+    LongPrototype.getNumBitsAbs = function getNumBitsAbs() {
+        if (this.isNegative()) // Unsigned Longs are never negative
+            return this.eq(Long.MIN_VALUE) ? 64 : this.neg().getNumBitsAbs();
+        var val = this.high != 0 ? this.high : this.low;
+        for (var bit = 31; bit > 0; bit--)
+            if ((val & (1 << bit)) != 0)
+                break;
+        return this.high != 0 ? bit + 33 : bit + 1;
+    };
+
+    /**
+     * Tests if this Long's value equals zero.
+     * @returns {boolean}
+     * @expose
+     */
+    LongPrototype.isZero = function isZero() {
+        return this.high === 0 && this.low === 0;
+    };
+
+    /**
+     * Tests if this Long's value is negative.
+     * @returns {boolean}
+     * @expose
+     */
+    LongPrototype.isNegative = function isNegative() {
+        return !this.unsigned && this.high < 0;
+    };
+
+    /**
+     * Tests if this Long's value is positive.
+     * @returns {boolean}
+     * @expose
+     */
+    LongPrototype.isPositive = function isPositive() {
+        return this.unsigned || this.high >= 0;
+    };
+
+    /**
+     * Tests if this Long's value is odd.
+     * @returns {boolean}
+     * @expose
+     */
+    LongPrototype.isOdd = function isOdd() {
+        return (this.low & 1) === 1;
+    };
+
+    /**
+     * Tests if this Long's value is even.
+     * @returns {boolean}
+     * @expose
+     */
+    LongPrototype.isEven = function isEven() {
+        return (this.low & 1) === 0;
+    };
+
+    /**
+     * Tests if this Long's value equals the specified's.
+     * @param {!Long|number|string} other Other value
+     * @returns {boolean}
+     * @expose
+     */
+    LongPrototype.equals = function equals(other) {
+        if (!Long.isLong(other))
+            other = Long.fromValue(other);
+        if (this.unsigned !== other.unsigned && (this.high >>> 31) === 1 && (other.high >>> 31) === 1)
+            return false;
+        return this.high === other.high && this.low === other.low;
+    };
+
+    /**
+     * Tests if this Long's value equals the specified's. This is an alias of {@link Long#equals}.
+     * @function
+     * @param {!Long|number|string} other Other value
+     * @returns {boolean}
+     * @expose
+     */
+    LongPrototype.eq = LongPrototype.equals;
+
+    /**
+     * Tests if this Long's value differs from the specified's.
+     * @param {!Long|number|string} other Other value
+     * @returns {boolean}
+     * @expose
+     */
+    LongPrototype.notEquals = function notEquals(other) {
+        return !this.eq(/* validates */ other);
+    };
+
+    /**
+     * Tests if this Long's value differs from the specified's. This is an alias of {@link Long#notEquals}.
+     * @function
+     * @param {!Long|number|string} other Other value
+     * @returns {boolean}
+     * @expose
+     */
+    LongPrototype.neq = LongPrototype.notEquals;
+
+    /**
+     * Tests if this Long's value is less than the specified's.
+     * @param {!Long|number|string} other Other value
+     * @returns {boolean}
+     * @expose
+     */
+    LongPrototype.lessThan = function lessThan(other) {
+        return this.compare(/* validates */ other) < 0;
+    };
+
+    /**
+     * Tests if this Long's value is less than the specified's. This is an alias of {@link Long#lessThan}.
+     * @function
+     * @param {!Long|number|string} other Other value
+     * @returns {boolean}
+     * @expose
+     */
+    LongPrototype.lt = LongPrototype.lessThan;
+
+    /**
+     * Tests if this Long's value is less than or equal the specified's.
+     * @param {!Long|number|string} other Other value
+     * @returns {boolean}
+     * @expose
+     */
+    LongPrototype.lessThanOrEqual = function lessThanOrEqual(other) {
+        return this.compare(/* validates */ other) <= 0;
+    };
+
+    /**
+     * Tests if this Long's value is less than or equal the specified's. This is an alias of {@link Long#lessThanOrEqual}.
+     * @function
+     * @param {!Long|number|string} other Other value
+     * @returns {boolean}
+     * @expose
+     */
+    LongPrototype.lte = LongPrototype.lessThanOrEqual;
+
+    /**
+     * Tests if this Long's value is greater than the specified's.
+     * @param {!Long|number|string} other Other value
+     * @returns {boolean}
+     * @expose
+     */
+    LongPrototype.greaterThan = function greaterThan(other) {
+        return this.compare(/* validates */ other) > 0;
+    };
+
+    /**
+     * Tests if this Long's value is greater than the specified's. This is an alias of {@link Long#greaterThan}.
+     * @function
+     * @param {!Long|number|string} other Other value
+     * @returns {boolean}
+     * @expose
+     */
+    LongPrototype.gt = LongPrototype.greaterThan;
+
+    /**
+     * Tests if this Long's value is greater than or equal the specified's.
+     * @param {!Long|number|string} other Other value
+     * @returns {boolean}
+     * @expose
+     */
+    LongPrototype.greaterThanOrEqual = function greaterThanOrEqual(other) {
+        return this.compare(/* validates */ other) >= 0;
+    };
+
+    /**
+     * Tests if this Long's value is greater than or equal the specified's. This is an alias of {@link Long#greaterThanOrEqual}.
+     * @function
+     * @param {!Long|number|string} other Other value
+     * @returns {boolean}
+     * @expose
+     */
+    LongPrototype.gte = LongPrototype.greaterThanOrEqual;
+
+    /**
+     * Compares this Long's value with the specified's.
+     * @param {!Long|number|string} other Other value
+     * @returns {number} 0 if they are the same, 1 if the this is greater and -1
+     *  if the given one is greater
+     * @expose
+     */
+    LongPrototype.compare = function compare(other) {
+        if (!Long.isLong(other))
+            other = Long.fromValue(other);
+        if (this.eq(other))
+            return 0;
+        var thisNeg = this.isNegative(),
+            otherNeg = other.isNegative();
+        if (thisNeg && !otherNeg)
+            return -1;
+        if (!thisNeg && otherNeg)
+            return 1;
+        // At this point the sign bits are the same
+        if (!this.unsigned)
+            return this.sub(other).isNegative() ? -1 : 1;
+        // Both are positive if at least one is unsigned
+        return (other.high >>> 0) > (this.high >>> 0) || (other.high === this.high && (other.low >>> 0) > (this.low >>> 0)) ? -1 : 1;
+    };
+
+    /**
+     * Compares this Long's value with the specified's. This is an alias of {@link Long#compare}.
+     * @function
+     * @param {!Long|number|string} other Other value
+     * @returns {number} 0 if they are the same, 1 if the this is greater and -1
+     *  if the given one is greater
+     * @expose
+     */
+    LongPrototype.comp = LongPrototype.compare;
+
+    /**
+     * Negates this Long's value.
+     * @returns {!Long} Negated Long
+     * @expose
+     */
+    LongPrototype.negate = function negate() {
+        if (!this.unsigned && this.eq(Long.MIN_VALUE))
+            return Long.MIN_VALUE;
+        return this.not().add(Long.ONE);
+    };
+
+    /**
+     * Negates this Long's value. This is an alias of {@link Long#negate}.
+     * @function
+     * @returns {!Long} Negated Long
+     * @expose
+     */
+    LongPrototype.neg = LongPrototype.negate;
+
+    /**
+     * Returns the sum of this and the specified Long.
+     * @param {!Long|number|string} addend Addend
+     * @returns {!Long} Sum
+     * @expose
+     */
+    LongPrototype.add = function add(addend) {
+        if (!Long.isLong(addend))
+            addend = Long.fromValue(addend);
+
+        // Divide each number into 4 chunks of 16 bits, and then sum the chunks.
+
+        var a48 = this.high >>> 16;
+        var a32 = this.high & 0xFFFF;
+        var a16 = this.low >>> 16;
+        var a00 = this.low & 0xFFFF;
+
+        var b48 = addend.high >>> 16;
+        var b32 = addend.high & 0xFFFF;
+        var b16 = addend.low >>> 16;
+        var b00 = addend.low & 0xFFFF;
+
+        var c48 = 0, c32 = 0, c16 = 0, c00 = 0;
+        c00 += a00 + b00;
+        c16 += c00 >>> 16;
+        c00 &= 0xFFFF;
+        c16 += a16 + b16;
+        c32 += c16 >>> 16;
+        c16 &= 0xFFFF;
+        c32 += a32 + b32;
+        c48 += c32 >>> 16;
+        c32 &= 0xFFFF;
+        c48 += a48 + b48;
+        c48 &= 0xFFFF;
+        return new Long((c16 << 16) | c00, (c48 << 16) | c32, this.unsigned);
+    };
+
+    /**
+     * Returns the difference of this and the specified Long.
+     * @param {!Long|number|string} subtrahend Subtrahend
+     * @returns {!Long} Difference
+     * @expose
+     */
+    LongPrototype.subtract = function subtract(subtrahend) {
+        if (!Long.isLong(subtrahend))
+            subtrahend = Long.fromValue(subtrahend);
+        return this.add(subtrahend.neg());
+    };
+
+    /**
+     * Returns the difference of this and the specified Long. This is an alias of {@link Long#subtract}.
+     * @function
+     * @param {!Long|number|string} subtrahend Subtrahend
+     * @returns {!Long} Difference
+     * @expose
+     */
+    LongPrototype.sub = LongPrototype.subtract;
+
+    /**
+     * Returns the product of this and the specified Long.
+     * @param {!Long|number|string} multiplier Multiplier
+     * @returns {!Long} Product
+     * @expose
+     */
+    LongPrototype.multiply = function multiply(multiplier) {
+        if (this.isZero())
+            return Long.ZERO;
+        if (!Long.isLong(multiplier))
+            multiplier = Long.fromValue(multiplier);
+        if (multiplier.isZero())
+            return Long.ZERO;
+        if (this.eq(Long.MIN_VALUE))
+            return multiplier.isOdd() ? Long.MIN_VALUE : Long.ZERO;
+        if (multiplier.eq(Long.MIN_VALUE))
+            return this.isOdd() ? Long.MIN_VALUE : Long.ZERO;
+
+        if (this.isNegative()) {
+            if (multiplier.isNegative())
+                return this.neg().mul(multiplier.neg());
+            else
+                return this.neg().mul(multiplier).neg();
+        } else if (multiplier.isNegative())
+            return this.mul(multiplier.neg()).neg();
+
+        // If both longs are small, use float multiplication
+        if (this.lt(TWO_PWR_24) && multiplier.lt(TWO_PWR_24))
+            return Long.fromNumber(this.toNumber() * multiplier.toNumber(), this.unsigned);
+
+        // Divide each long into 4 chunks of 16 bits, and then add up 4x4 products.
+        // We can skip products that would overflow.
+
+        var a48 = this.high >>> 16;
+        var a32 = this.high & 0xFFFF;
+        var a16 = this.low >>> 16;
+        var a00 = this.low & 0xFFFF;
+
+        var b48 = multiplier.high >>> 16;
+        var b32 = multiplier.high & 0xFFFF;
+        var b16 = multiplier.low >>> 16;
+        var b00 = multiplier.low & 0xFFFF;
+
+        var c48 = 0, c32 = 0, c16 = 0, c00 = 0;
+        c00 += a00 * b00;
+        c16 += c00 >>> 16;
+        c00 &= 0xFFFF;
+        c16 += a16 * b00;
+        c32 += c16 >>> 16;
+        c16 &= 0xFFFF;
+        c16 += a00 * b16;
+        c32 += c16 >>> 16;
+        c16 &= 0xFFFF;
+        c32 += a32 * b00;
+        c48 += c32 >>> 16;
+        c32 &= 0xFFFF;
+        c32 += a16 * b16;
+        c48 += c32 >>> 16;
+        c32 &= 0xFFFF;
+        c32 += a00 * b32;
+        c48 += c32 >>> 16;
+        c32 &= 0xFFFF;
+        c48 += a48 * b00 + a32 * b16 + a16 * b32 + a00 * b48;
+        c48 &= 0xFFFF;
+        return new Long((c16 << 16) | c00, (c48 << 16) | c32, this.unsigned);
+    };
+
+    /**
+     * Returns the product of this and the specified Long. This is an alias of {@link Long#multiply}.
+     * @function
+     * @param {!Long|number|string} multiplier Multiplier
+     * @returns {!Long} Product
+     * @expose
+     */
+    LongPrototype.mul = LongPrototype.multiply;
+
+    /**
+     * Returns this Long divided by the specified.
+     * @param {!Long|number|string} divisor Divisor
+     * @returns {!Long} Quotient
+     * @expose
+     */
+    LongPrototype.divide = function divide(divisor) {
+        if (!Long.isLong(divisor))
+            divisor = Long.fromValue(divisor);
+        if (divisor.isZero())
+            throw Error('division by zero');
+        if (this.isZero())
+            return this.unsigned ? Long.UZERO : Long.ZERO;
+        var approx, rem, res;
+        if (this.eq(Long.MIN_VALUE)) {
+            if (divisor.eq(Long.ONE) || divisor.eq(Long.NEG_ONE))
+                return Long.MIN_VALUE;  // recall that -MIN_VALUE == MIN_VALUE
+            else if (divisor.eq(Long.MIN_VALUE))
+                return Long.ONE;
+            else {
+                // At this point, we have |other| >= 2, so |this/other| < |MIN_VALUE|.
+                var halfThis = this.shr(1);
+                approx = halfThis.div(divisor).shl(1);
+                if (approx.eq(Long.ZERO)) {
+                    return divisor.isNegative() ? Long.ONE : Long.NEG_ONE;
+                } else {
+                    rem = this.sub(divisor.mul(approx));
+                    res = approx.add(rem.div(divisor));
+                    return res;
+                }
+            }
+        } else if (divisor.eq(Long.MIN_VALUE))
+            return this.unsigned ? Long.UZERO : Long.ZERO;
+        if (this.isNegative()) {
+            if (divisor.isNegative())
+                return this.neg().div(divisor.neg());
+            return this.neg().div(divisor).neg();
+        } else if (divisor.isNegative())
+            return this.div(divisor.neg()).neg();
+
+        // Repeat the following until the remainder is less than other:  find a
+        // floating-point that approximates remainder / other *from below*, add this
+        // into the result, and subtract it from the remainder.  It is critical that
+        // the approximate value is less than or equal to the real value so that the
+        // remainder never becomes negative.
+        res = Long.ZERO;
+        rem = this;
+        while (rem.gte(divisor)) {
+            // Approximate the result of division. This may be a little greater or
+            // smaller than the actual value.
+            approx = Math.max(1, Math.floor(rem.toNumber() / divisor.toNumber()));
+
+            // We will tweak the approximate result by changing it in the 48-th digit or
+            // the smallest non-fractional digit, whichever is larger.
+            var log2 = Math.ceil(Math.log(approx) / Math.LN2),
+                delta = (log2 <= 48) ? 1 : Math.pow(2, log2 - 48),
+
+            // Decrease the approximation until it is smaller than the remainder.  Note
+            // that if it is too large, the product overflows and is negative.
+                approxRes = Long.fromNumber(approx),
+                approxRem = approxRes.mul(divisor);
+            while (approxRem.isNegative() || approxRem.gt(rem)) {
+                approx -= delta;
+                approxRes = Long.fromNumber(approx, this.unsigned);
+                approxRem = approxRes.mul(divisor);
+            }
+
+            // We know the answer can't be zero... and actually, zero would cause
+            // infinite recursion since we would make no progress.
+            if (approxRes.isZero())
+                approxRes = Long.ONE;
+
+            res = res.add(approxRes);
+            rem = rem.sub(approxRem);
+        }
+        return res;
+    };
+
+    /**
+     * Returns this Long divided by the specified. This is an alias of {@link Long#divide}.
+     * @function
+     * @param {!Long|number|string} divisor Divisor
+     * @returns {!Long} Quotient
+     * @expose
+     */
+    LongPrototype.div = LongPrototype.divide;
+
+    /**
+     * Returns this Long modulo the specified.
+     * @param {!Long|number|string} divisor Divisor
+     * @returns {!Long} Remainder
+     * @expose
+     */
+    LongPrototype.modulo = function modulo(divisor) {
+        if (!Long.isLong(divisor))
+            divisor = Long.fromValue(divisor);
+        return this.sub(this.div(divisor).mul(divisor));
+    };
+
+    /**
+     * Returns this Long modulo the specified. This is an alias of {@link Long#modulo}.
+     * @function
+     * @param {!Long|number|string} divisor Divisor
+     * @returns {!Long} Remainder
+     * @expose
+     */
+    LongPrototype.mod = LongPrototype.modulo;
+
+    /**
+     * Returns the bitwise NOT of this Long.
+     * @returns {!Long}
+     * @expose
+     */
+    LongPrototype.not = function not() {
+        return new Long(~this.low, ~this.high, this.unsigned);
+    };
+
+    /**
+     * Returns the bitwise AND of this Long and the specified.
+     * @param {!Long|number|string} other Other Long
+     * @returns {!Long}
+     * @expose
+     */
+    LongPrototype.and = function and(other) {
+        if (!Long.isLong(other))
+            other = Long.fromValue(other);
+        return new Long(this.low & other.low, this.high & other.high, this.unsigned);
+    };
+
+    /**
+     * Returns the bitwise OR of this Long and the specified.
+     * @param {!Long|number|string} other Other Long
+     * @returns {!Long}
+     * @expose
+     */
+    LongPrototype.or = function or(other) {
+        if (!Long.isLong(other))
+            other = Long.fromValue(other);
+        return new Long(this.low | other.low, this.high | other.high, this.unsigned);
+    };
+
+    /**
+     * Returns the bitwise XOR of this Long and the given one.
+     * @param {!Long|number|string} other Other Long
+     * @returns {!Long}
+     * @expose
+     */
+    LongPrototype.xor = function xor(other) {
+        if (!Long.isLong(other))
+            other = Long.fromValue(other);
+        return new Long(this.low ^ other.low, this.high ^ other.high, this.unsigned);
+    };
+
+    /**
+     * Returns this Long with bits shifted to the left by the given amount.
+     * @param {number|!Long} numBits Number of bits
+     * @returns {!Long} Shifted Long
+     * @expose
+     */
+    LongPrototype.shiftLeft = function shiftLeft(numBits) {
+        if (Long.isLong(numBits))
+            numBits = numBits.toInt();
+        if ((numBits &= 63) === 0)
+            return this;
+        else if (numBits < 32)
+            return new Long(this.low << numBits, (this.high << numBits) | (this.low >>> (32 - numBits)), this.unsigned);
+        else
+            return new Long(0, this.low << (numBits - 32), this.unsigned);
+    };
+
+    /**
+     * Returns this Long with bits shifted to the left by the given amount. This is an alias of {@link Long#shiftLeft}.
+     * @function
+     * @param {number|!Long} numBits Number of bits
+     * @returns {!Long} Shifted Long
+     * @expose
+     */
+    LongPrototype.shl = LongPrototype.shiftLeft;
+
+    /**
+     * Returns this Long with bits arithmetically shifted to the right by the given amount.
+     * @param {number|!Long} numBits Number of bits
+     * @returns {!Long} Shifted Long
+     * @expose
+     */
+    LongPrototype.shiftRight = function shiftRight(numBits) {
+        if (Long.isLong(numBits))
+            numBits = numBits.toInt();
+        if ((numBits &= 63) === 0)
+            return this;
+        else if (numBits < 32)
+            return new Long((this.low >>> numBits) | (this.high << (32 - numBits)), this.high >> numBits, this.unsigned);
+        else
+            return new Long(this.high >> (numBits - 32), this.high >= 0 ? 0 : -1, this.unsigned);
+    };
+
+    /**
+     * Returns this Long with bits arithmetically shifted to the right by the given amount. This is an alias of {@link Long#shiftRight}.
+     * @function
+     * @param {number|!Long} numBits Number of bits
+     * @returns {!Long} Shifted Long
+     * @expose
+     */
+    LongPrototype.shr = LongPrototype.shiftRight;
+
+    /**
+     * Returns this Long with bits logically shifted to the right by the given amount.
+     * @param {number|!Long} numBits Number of bits
+     * @returns {!Long} Shifted Long
+     * @expose
+     */
+    LongPrototype.shiftRightUnsigned = function shiftRightUnsigned(numBits) {
+        if (Long.isLong(numBits))
+            numBits = numBits.toInt();
+        numBits &= 63;
+        if (numBits === 0)
+            return this;
+        else {
+            var high = this.high;
+            if (numBits < 32) {
+                var low = this.low;
+                return new Long((low >>> numBits) | (high << (32 - numBits)), high >>> numBits, this.unsigned);
+            } else if (numBits === 32)
+                return new Long(high, 0, this.unsigned);
+            else
+                return new Long(high >>> (numBits - 32), 0, this.unsigned);
+        }
+    };
+
+    /**
+     * Returns this Long with bits logically shifted to the right by the given amount. This is an alias of {@link Long#shiftRightUnsigned}.
+     * @function
+     * @param {number|!Long} numBits Number of bits
+     * @returns {!Long} Shifted Long
+     * @expose
+     */
+    LongPrototype.shru = LongPrototype.shiftRightUnsigned;
+
+    /**
+     * Converts this Long to signed.
+     * @returns {!Long} Signed long
+     * @expose
+     */
+    LongPrototype.toSigned = function toSigned() {
+        if (!this.unsigned)
+            return this;
+        return new Long(this.low, this.high, false);
+    };
+
+    /**
+     * Converts this Long to unsigned.
+     * @returns {!Long} Unsigned long
+     * @expose
+     */
+    LongPrototype.toUnsigned = function toUnsigned() {
+        if (this.unsigned)
+            return this;
+        return new Long(this.low, this.high, true);
+    };
+
+    return Long;
+});
+
+},{}],108:[function(require,module,exports){
 module.exports={
   "name": "forth",
-  "version": "0.8.0",
+  "version": "0.12.0",
   "description": "Forth programming environment",
   "main": "lib/index.js",
   "bin": {
@@ -27105,7 +28604,8 @@ module.exports={
     "escodegen": "^1.7.0",
     "esprima": "^2.7.0",
     "estraverse": "^4.1.1",
-    "jsof": "^0.2.1"
+    "jsof": "^0.2.1",
+    "long": "^3.0.1"
   },
   "devDependencies": {
     "eslint": "^1.9.0",
@@ -27114,13 +28614,13 @@ module.exports={
   },
   "readme": "# Forth\n[![NPM version](https://img.shields.io/npm/v/forth.svg)](https://www.npmjs.org/package/forth) [![Build Status](https://travis-ci.org/drom/forth.svg?branch=master)](https://travis-ci.org/drom/forth) [![Build status](https://ci.appveyor.com/api/projects/status/xw04eu1fa8ng167h?svg=true)](https://ci.appveyor.com/project/drom/forth)\n\nForth programming environment implemented in JavaScript.\n\n## Use\n### Node.js\n\n```\nnpm i forth -g\n```\n\n### REPL\n```\nforth\n```\n\n### Streaming CLI\n```\nforth < core.frt\n```\n\n### Library\n\n```js\nvar forth = require('forth');\nvar f = forth(); // new instance of Forth machine\n// f.s -- is the duplex stream\nprocess.stdin.pipe(f.s).pipe(process.stdout);\n```\n\n### Browser\nuse Browserify!\n\n### APIs\n#### f.interpret(input, cb)\nRun Forth interpreter.\n\n`input` can be String or Stream\n\n#### f.DS()\nData stack Array\n\n#### f.RS()\nReturn stack Array\n\n## Testing\n`npm test`\n\n## License\nMIT [LICENSE](https://github.com/drom/forth/blob/master/LICENSE).\n",
   "readmeFilename": "README.md",
-  "gitHead": "68659fee33746f588824ab9e460bb34bd203791d",
-  "_id": "forth@0.8.0",
-  "_shasum": "09ed88fe1149aec2ec4b04027dcd602c60fc8db4",
+  "gitHead": "91ef01dc46b4d1ac8fdaacd9f840db213200d46a",
+  "_id": "forth@0.12.0",
+  "_shasum": "4ea21295455eac22015148237c9e571da85a7c09",
   "_from": "forth@*"
 }
 
-},{}],107:[function(require,module,exports){
+},{}],109:[function(require,module,exports){
 (function () {
     'use strict';
 
@@ -27193,4 +28693,4 @@ module.exports={
 /* global console, CodeMirror */
 /* env browser */
 
-},{"forth":32}]},{},[107]);
+},{"forth":33}]},{},[109]);
