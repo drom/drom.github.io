@@ -5030,6 +5030,261 @@ function program (body) {
     };
 }
 
+function postpone (index) {
+    return {
+        type: Syntax.ExpressionStatement,
+        expression: {
+            type: Syntax.CallExpression,
+            callee: {
+                type: Syntax.MemberExpression,
+                computed: false,
+                object: {
+                    type: Syntax.MemberExpression,
+                    computed: false,
+                    object: {
+                        type: Syntax.ThisExpression
+                    },
+                    property: {
+                        type: Syntax.Identifier,
+                        name: 'pos'
+                    }
+                },
+                property: {
+                    type: Syntax.Identifier,
+                    name: 'push'
+                }
+            },
+            arguments: [
+                {
+                    type: Syntax.ObjectExpression,
+                    properties: [
+                        {
+                            type: Syntax.Property,
+                            key: {
+                                type: Syntax.Literal,
+                                value: 'type',
+                                raw: 'type'
+                            },
+                            computed: false,
+                            value: {
+                                type: Syntax.Literal,
+                                value: 'ExpressionStatement',
+                                raw: 'ExpressionStatement'
+                            },
+                            kind: 'init',
+                            method: false,
+                            shorthand: false
+                        },
+                        {
+                            type: Syntax.Property,
+                            key: {
+                                type: Syntax.Literal,
+                                value: 'expression',
+                                raw: 'expression'
+                            },
+                            computed: false,
+                            value: {
+                                type: Syntax.ObjectExpression,
+                                properties: [
+                                    {
+                                        type: Syntax.Property,
+                                        key: {
+                                            type: Syntax.Literal,
+                                            value: 'type',
+                                            raw: 'type'
+                                        },
+                                        computed: false,
+                                        value: {
+                                            type: Syntax.Literal,
+                                            value: 'CallExpression',
+                                            raw: 'CallExpression'
+                                        },
+                                        kind: 'init',
+                                        method: false,
+                                        shorthand: false
+                                    },
+                                    {
+                                        type: Syntax.Property,
+                                        key: {
+                                            type: Syntax.Literal,
+                                            value: 'callee',
+                                            raw: 'callee'
+                                        },
+                                        computed: false,
+                                        value: {
+                                            type: Syntax.ObjectExpression,
+                                            properties: [
+                                                {
+                                                    type: Syntax.Property,
+                                                    key: {
+                                                        type: Syntax.Literal,
+                                                        value: 'type',
+                                                        raw: 'type'
+                                                    },
+                                                    computed: false,
+                                                    value: {
+                                                        type: Syntax.Literal,
+                                                        value: 'MemberExpression',
+                                                        raw: 'MemberExpression'
+                                                    },
+                                                    kind: 'init',
+                                                    method: false,
+                                                    shorthand: false
+                                                },
+                                                {
+                                                    type: Syntax.Property,
+                                                    key: {
+                                                        type: Syntax.Literal,
+                                                        value: 'computed',
+                                                        raw: 'computed'
+                                                    },
+                                                    computed: false,
+                                                    value: {
+                                                        type: Syntax.Literal,
+                                                        value: true,
+                                                        raw: true
+                                                    },
+                                                    kind: 'init',
+                                                    method: false,
+                                                    shorthand: false
+                                                },
+                                                {
+                                                    type: Syntax.Property,
+                                                    key: {
+                                                        type: Syntax.Literal,
+                                                        value: 'object',
+                                                        raw: 'object'
+                                                    },
+                                                    computed: false,
+                                                    value: {
+                                                        type: Syntax.ObjectExpression,
+                                                        properties: [
+                                                            {
+                                                                type: Syntax.Property,
+                                                                key: {
+                                                                    type: Syntax.Literal,
+                                                                    value: 'type',
+                                                                    raw: 'type'
+                                                                },
+                                                                computed: false,
+                                                                value: {
+                                                                    type: Syntax.Literal,
+                                                                    value: 'ThisExpression',
+                                                                    raw: 'ThisExpression'
+                                                                },
+                                                                kind: 'init',
+                                                                method: false,
+                                                                shorthand: false
+                                                            }
+                                                        ]
+                                                    },
+                                                    kind: 'init',
+                                                    method: false,
+                                                    shorthand: false
+                                                },
+                                                {
+                                                    type: Syntax.Property,
+                                                    key: {
+                                                        type: Syntax.Literal,
+                                                        value: 'property',
+                                                        raw: 'property'
+                                                    },
+                                                    computed: false,
+                                                    value: {
+                                                        type: Syntax.ObjectExpression,
+                                                        properties: [
+                                                            {
+                                                                type: Syntax.Property,
+                                                                key: {
+                                                                    type: Syntax.Literal,
+                                                                    value: 'type',
+                                                                    raw: 'type'
+                                                                },
+                                                                computed: false,
+                                                                value: {
+                                                                    type: Syntax.Literal,
+                                                                    value: 'Literal',
+                                                                    raw: 'Literal'
+                                                                },
+                                                                kind: 'init',
+                                                                method: false,
+                                                                shorthand: false
+                                                            },
+                                                            {
+                                                                type: Syntax.Property,
+                                                                key: {
+                                                                    type: Syntax.Literal,
+                                                                    value: 'value',
+                                                                    raw: 'value'
+                                                                },
+                                                                computed: false,
+                                                                value: {
+                                                                    type: Syntax.Literal,
+                                                                    value: index,
+                                                                    raw: index + ''
+                                                                },
+                                                                kind: 'init',
+                                                                method: false,
+                                                                shorthand: false
+                                                            },
+                                                            {
+                                                                type: Syntax.Property,
+                                                                key: {
+                                                                    type: Syntax.Literal,
+                                                                    value: 'raw',
+                                                                    raw: 'raw'
+                                                                },
+                                                                computed: false,
+                                                                value: {
+                                                                    type: Syntax.Literal,
+                                                                    value: index,
+                                                                    raw: index + ''
+                                                                },
+                                                                kind: 'init',
+                                                                method: false,
+                                                                shorthand: false
+                                                            }
+                                                        ]
+                                                    },
+                                                    kind: 'init',
+                                                    method: false,
+                                                    shorthand: false
+                                                }
+                                            ]
+                                        },
+                                        kind: 'init',
+                                        method: false,
+                                        shorthand: false
+                                    },
+                                    {
+                                        type: Syntax.Property,
+                                        key: {
+                                            type: Syntax.Literal,
+                                            value: 'arguments',
+                                            raw: 'arguments'
+                                        },
+                                        computed: false,
+                                        value: {
+                                            type: Syntax.ArrayExpression,
+                                            elements: []
+                                        },
+                                        kind: 'init',
+                                        method: false,
+                                        shorthand: false
+                                    }
+                                ]
+                            },
+                            kind: 'init',
+                            method: false,
+                            shorthand: false
+                        }
+                    ]
+                }
+            ]
+        }
+    };
+}
+
 module.exports = {
     dpush: dpush,
     dpop: dpop,
@@ -5037,6 +5292,7 @@ module.exports = {
     rpop: rpop,
     notdpop: notdpop,
     callword: callword,
+    postpone: postpone,
     program: program
 };
 
@@ -5109,7 +5365,11 @@ function main (cxt) {
         var w = this.io.word('\\s');
         var wordLink = this.O[w.toLowerCase()];
         if (wordLink) {
-           this.pos.push(ast.callword(wordLink.index));
+            if (wordLink.immediate) {
+                this.pos.push(ast.callword(wordLink.index));
+            } else {
+                this.pos.push(ast.postpone(wordLink.index));
+            }
         } else {
             cxt.log('word: ' + w + ' is not defined');
             throw new Error;
@@ -6450,14 +6710,9 @@ function core (cxt) {
 // 6.1.0980 COUNT
     def('count', function () {
         var addr = this.dpop();
-        var i;
-        for (i = 0; i < 100; i++) {
-            if (this.MEMi8[addr + i] === 0) {
-                break;
-            };
-        }
-        this.dpush(addr);
-        this.dpush(i);
+        var len = this.MEMi8[addr];
+        this.dpush(addr + 1);
+        this.dpush(len);
     }, cxt);
 
 // 6.1.1320 EMIT ( x -- )
@@ -6499,7 +6754,29 @@ function core (cxt) {
     def('fill', function () { }, cxt);
 
 // 6.1.1550 FIND
-    def('find', function () { }, cxt);
+    def('find', function () {
+        'count'();
+        var len = this.dpop();
+        var addr = this.dpop();
+        var str = '';
+        var i;
+        for (i = 0; i < len; i++) {
+            str += String.fromCharCode(this.MEMi8[addr + i]);
+        }
+        str = str.toLowerCase();
+        var wordLink = this.O[str];
+        if (wordLink) {
+            this.dpush(wordLink.index);
+            if (wordLink.immediate) {
+                this.dpush(1);
+            } else {
+                this.dpush(-1);
+            }
+        } else {
+            this.dpush(addr);
+            this.dpush(0);
+        }
+    }, cxt);
 
 // 6.1.1670 HOLD
     def('hold', function () { }, cxt);
@@ -6568,10 +6845,10 @@ function core (cxt) {
             expect(stash.DS).deep.equal(this.DS);
         } catch (err) {
             lines = this.io.buf.toString().slice(0, this.io.ptr).split('\n');
-            cxt.log('\n' + colors.red('Error:') + ' in line: ' + (lines.length - 1) + '\n');
+            cxt.log(colors.red('Error:') + ' in line: ' + (lines.length - 1) + ' ');
             l0 = lines.pop();
             l1 = lines.pop();
-            cxt.log(l1 + '\n' + l0 + '\n');
+            cxt.log(l1 + ' ' + l0 + ' ');
             cxt.log(err.message);
         }
         cxt.log('.\n');
@@ -6600,10 +6877,12 @@ function main (cxt) {
 // CREATE
     def('create', function () {
         var w = this.io.word('\\s');
-        var here = this.here;
-        def(w, function () {
-            this.dpush(this.here);
-        }, this, {body: here});
+        def(
+            w,
+            'function () { this.dpush(' + this.here + '); }',
+            this,
+            {dfa: this.here}
+        );
     }, cxt);
 
 // CODE
@@ -6623,20 +6902,24 @@ def('end-code', function () {
 // : VARIABLE CREATE 0 , ;
     def('variable', function () {
         var w = this.io.word('\\s');
-        var here = this.here;
+        def(
+            w,
+            'function () { this.dpush(' + this.here + '); }',
+            this,
+            {dfa: this.here}
+        );
         this.here += 4;
-        def(w, function () {
-            this.dpush(here);
-        }, this);
     }, cxt);
 
 // : CONSTANT CREATE , DOES> @ ;
     def('constant', function () {
         var w = this.io.word('\\s');
         var t = this.dpop();
-        def(w, function () {
-            this.dpush(t);
-        }, this);
+        def(
+            w,
+            'function () { this.dpush(' + t + '); }',
+            this
+        );
     }, cxt);
 
 /*
@@ -7055,10 +7338,11 @@ function main (cxt) {
     }, cxt);
 
 // 6.1.0705 ALIGN
-    // def ('align', function () {
-    //     // this.dpush((this.dpop() + 3) & -4);
-    //     this.dpush(this.dpop());
-    // }, cxt);
+    def ('align', function () {
+        this.here = (this.here + 3) & -4;
+        // this.dpush((this.dpop() + 3) & -4);
+        // this.dpush(this.dpop());
+    }, cxt);
 
 }
 
@@ -16216,9 +16500,11 @@ module['exports'] = colors;
         },
 
         ExportSpecifier: function (expr, precedence, flags) {
-            var result = [ (expr.id || expr.local).name ];
-            if (expr.name) {
-                result.push(noEmptySpace() + 'as' + noEmptySpace() + generateIdentifier(expr.name));
+            var exported = (expr.id || expr.imported).name;
+            var result = [ exported ];
+            var id = expr.name || expr.local;
+            if (id && id.name !== exported) {
+                result.push(noEmptySpace() + 'as' + noEmptySpace() + generateIdentifier(id));
             }
             return result;
         },
@@ -20742,9 +21028,9 @@ module.exports={
     "escodegen.js",
     "package.json"
   ],
-  "version": "1.7.0",
+  "version": "1.7.1",
   "engines": {
-    "node": ">=0.10.0"
+    "node": ">=0.12.0"
   },
   "maintainers": [
     {
@@ -20776,11 +21062,10 @@ module.exports={
     "bower-registry-client": "^0.2.1",
     "chai": "^1.10.0",
     "commonjs-everywhere": "^0.9.7",
-    "esprima-moz": "1.0.0-dev-harmony-moz",
     "gulp": "^3.8.10",
     "gulp-eslint": "^0.2.0",
     "gulp-mocha": "^2.0.0",
-    "semver": "^4.1.0"
+    "semver": "^5.1.0"
   },
   "license": "BSD-2-Clause",
   "scripts": {
@@ -20791,25 +21076,25 @@ module.exports={
     "build-min": "cjsify -ma path: tools/entry-point.js > escodegen.browser.min.js",
     "build": "cjsify -a path: tools/entry-point.js > escodegen.browser.js"
   },
-  "gitHead": "5dabbc5441b396febd0afb9252a9afdfa7051657",
+  "gitHead": "f48fa71ce638ec32943c42c2377a08cefe9d8576",
   "bugs": {
     "url": "https://github.com/estools/escodegen/issues"
   },
-  "_id": "escodegen@1.7.0",
-  "_shasum": "4e299d8cc33087b7f29c19e2b9e84362abe35453",
+  "_id": "escodegen@1.7.1",
+  "_shasum": "30ecfcf66ca98dc67cd2fd162abeb6eafa8ce6fc",
   "_from": "escodegen@>=1.7.0 <2.0.0",
-  "_npmVersion": "2.11.3",
-  "_nodeVersion": "0.12.7",
+  "_npmVersion": "2.14.7",
+  "_nodeVersion": "4.2.2",
   "_npmUser": {
     "name": "michaelficarra",
     "email": "npm@michael.ficarra.me"
   },
   "dist": {
-    "shasum": "4e299d8cc33087b7f29c19e2b9e84362abe35453",
-    "tarball": "http://registry.npmjs.org/escodegen/-/escodegen-1.7.0.tgz"
+    "shasum": "30ecfcf66ca98dc67cd2fd162abeb6eafa8ce6fc",
+    "tarball": "http://registry.npmjs.org/escodegen/-/escodegen-1.7.1.tgz"
   },
   "directories": {},
-  "_resolved": "https://registry.npmjs.org/escodegen/-/escodegen-1.7.0.tgz",
+  "_resolved": "https://registry.npmjs.org/escodegen/-/escodegen-1.7.1.tgz",
   "readme": "ERROR: No README data found!"
 }
 
@@ -28571,7 +28856,7 @@ module.exports={
 },{}],108:[function(require,module,exports){
 module.exports={
   "name": "forth",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "Forth programming environment",
   "main": "lib/index.js",
   "bin": {
@@ -28614,9 +28899,9 @@ module.exports={
   },
   "readme": "# Forth\n[![NPM version](https://img.shields.io/npm/v/forth.svg)](https://www.npmjs.org/package/forth) [![Build Status](https://travis-ci.org/drom/forth.svg?branch=master)](https://travis-ci.org/drom/forth) [![Build status](https://ci.appveyor.com/api/projects/status/xw04eu1fa8ng167h?svg=true)](https://ci.appveyor.com/project/drom/forth)\n\nForth programming environment implemented in JavaScript.\n\n## Use\n### Node.js\n\n```\nnpm i forth -g\n```\n\n### REPL\n```\nforth\n```\n\n### Streaming CLI\n```\nforth < core.frt\n```\n\n### Library\n\n```js\nvar forth = require('forth');\nvar f = forth(); // new instance of Forth machine\n// f.s -- is the duplex stream\nprocess.stdin.pipe(f.s).pipe(process.stdout);\n```\n\n### Browser\nuse Browserify!\n\n### APIs\n#### f.interpret(input, cb)\nRun Forth interpreter.\n\n`input` can be String or Stream\n\n#### f.DS()\nData stack Array\n\n#### f.RS()\nReturn stack Array\n\n## Testing\n`npm test`\n\n## License\nMIT [LICENSE](https://github.com/drom/forth/blob/master/LICENSE).\n",
   "readmeFilename": "README.md",
-  "gitHead": "91ef01dc46b4d1ac8fdaacd9f840db213200d46a",
-  "_id": "forth@0.12.0",
-  "_shasum": "4ea21295455eac22015148237c9e571da85a7c09",
+  "gitHead": "0457105116545a2faf45edeb725cbe2e89d5baef",
+  "_id": "forth@0.13.0",
+  "_shasum": "2ab1283e642ad092385952b25d43a85e94b786f8",
   "_from": "forth@*"
 }
 
