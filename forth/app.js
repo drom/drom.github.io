@@ -1469,7 +1469,7 @@ function utf8ToBytes (string, units) {
       }
 
       // valid surrogate pair
-      codePoint = leadSurrogate - 0xD800 << 10 | codePoint - 0xDC00 | 0x10000
+      codePoint = (leadSurrogate - 0xD800 << 10 | codePoint - 0xDC00) + 0x10000
     } else if (leadSurrogate) {
       // valid bmp char, but last char was a lead
       if ((units -= 3) > -1) bytes.push(0xEF, 0xBF, 0xBD)
@@ -4311,8 +4311,12 @@ function endWritable(stream, state, cb) {
 
 // NOTE: These type checking functions intentionally don't use `instanceof`
 // because it is fragile and can be easily faked with `Object.create()`.
-function isArray(ar) {
-  return Array.isArray(ar);
+
+function isArray(arg) {
+  if (Array.isArray) {
+    return Array.isArray(arg);
+  }
+  return objectToString(arg) === '[object Array]';
 }
 exports.isArray = isArray;
 
@@ -4352,7 +4356,7 @@ function isUndefined(arg) {
 exports.isUndefined = isUndefined;
 
 function isRegExp(re) {
-  return isObject(re) && objectToString(re) === '[object RegExp]';
+  return objectToString(re) === '[object RegExp]';
 }
 exports.isRegExp = isRegExp;
 
@@ -4362,13 +4366,12 @@ function isObject(arg) {
 exports.isObject = isObject;
 
 function isDate(d) {
-  return isObject(d) && objectToString(d) === '[object Date]';
+  return objectToString(d) === '[object Date]';
 }
 exports.isDate = isDate;
 
 function isError(e) {
-  return isObject(e) &&
-      (objectToString(e) === '[object Error]' || e instanceof Error);
+  return (objectToString(e) === '[object Error]' || e instanceof Error);
 }
 exports.isError = isError;
 
@@ -4387,14 +4390,12 @@ function isPrimitive(arg) {
 }
 exports.isPrimitive = isPrimitive;
 
-function isBuffer(arg) {
-  return Buffer.isBuffer(arg);
-}
-exports.isBuffer = isBuffer;
+exports.isBuffer = Buffer.isBuffer;
 
 function objectToString(o) {
   return Object.prototype.toString.call(o);
 }
+
 }).call(this,{"isBuffer":require("../../../../insert-module-globals/node_modules/is-buffer/index.js")})
 },{"../../../../insert-module-globals/node_modules/is-buffer/index.js":8}],19:[function(require,module,exports){
 (function (process){
@@ -6259,8 +6260,8 @@ function main (cxt) {
 
     def('+loop', function () {
         this.pos.push({
-            type: Syntax.ExpressionStatement,
-            expression: {
+            type: Syntax.IfStatement,
+            test: {
                 type: Syntax.CallExpression,
                 callee: {
                     type: Syntax.MemberExpression,
@@ -6270,73 +6271,18 @@ function main (cxt) {
                     },
                     property: {
                         type: Syntax.Identifier,
-                        name: 'rpush'
+                        name: 'plusloop'
                     }
                 },
-                arguments: [
-                    {
-                        type: Syntax.BinaryExpression,
-                        operator: '+',
-                        left: ast.rpop(),
-                        right: ast.dpop()
-                    }
-                ]
-            }
+                arguments: []
+            },
+            consequent: {
+                type: Syntax.BreakStatement,
+                label: null
+            },
+            alternate: null
         });
         this.pos = this.cfs.pop();
-
-        this.pos[this.pos.length - 1].body.test = {
-            type: Syntax.BinaryExpression,
-            operator: '!==',
-            left: {
-                type: Syntax.BinaryExpression,
-                operator: '>>>',
-                left: {
-                    type: Syntax.CallExpression,
-                    callee: {
-                        type: Syntax.MemberExpression,
-                        computed: false,
-                        object: {
-                            type: Syntax.ThisExpression
-                        },
-                        property: {
-                            type: Syntax.Identifier,
-                            name: 'rtop'
-                        }
-                    },
-                    arguments: []
-                },
-                right: {
-                    type: Syntax.Literal,
-                    value: 0,
-                    raw: '0'
-                }
-            },
-            right: {
-                type: Syntax.BinaryExpression,
-                operator: '>>>',
-                left: {
-                    type: Syntax.CallExpression,
-                    callee: {
-                        type: Syntax.MemberExpression,
-                        computed: false,
-                        object: {
-                            type: Syntax.ThisExpression
-                        },
-                        property: {
-                            type: Syntax.Identifier,
-                            name: 'rnext'
-                        }
-                    },
-                    arguments: []
-                },
-                right: {
-                    type: Syntax.Literal,
-                    value: 0,
-                    raw: '0'
-                }
-            }
-        };
         this.pos.push({
             type: Syntax.ExpressionStatement,
             expression: ast.rpop()
@@ -6576,6 +6522,7 @@ module.exports = main;
 'use strict';
 
 var def = require('./def'),
+    Long = require('long'),
     colors = require('colors/safe'),
     expect = require('chai').expect;
 
@@ -6666,24 +6613,102 @@ function core (cxt) {
 
     def('decimal', function () { this.setBase(10); }, cxt);
 
-// 6.1.0030 #
-    def('#', function () { }, cxt);
+
+
+
+
+// 6.1.0490 <# “less-number-sign”
+// Initialize the pictured numeric output conversion process.
+    def('<#', function () { // ( -- )
+        this.picturedNumericOutputAddress = this.here + 128;
+        this.picturedNumericOutputLength = 0;
+    }, cxt);
 
 // 6.1.0040 #>
     def('#>', function () {
         this.dpop();
         this.dpop();
-        this.dpush(100);
-        this.dpush(100);
+        this.dpush(this.picturedNumericOutputAddress + 1);
+        this.dpush(this.picturedNumericOutputLength);
     }, cxt);
+
+// 6.1.1670 HOLD
+    def('hold', function () {
+        var char = this.dpop() >>> 0;
+        this.MEMi8[this.picturedNumericOutputAddress] = char;
+        this.picturedNumericOutputAddress -= 1;
+        this.picturedNumericOutputLength += 1;
+    }, cxt);
+
+// 6.1.2210 SIGN
+    def('sign', function () { // ( n -- )
+        var t = this.dpop() | 0;
+        if (t < 0) {
+            this.MEMi8[this.picturedNumericOutputAddress] = 45;
+            this.picturedNumericOutputAddress -= 1;
+            this.picturedNumericOutputLength += 1;
+        }
+    }, cxt);
+
+// 6.1.0030 # “number-sign”
+// Divide ud1 by the number in BASE giving the quotient ud2 and the remainder n.
+// (n is the least-significant digit of ud1.) Convert n to external form
+// and add the resulting character to the beginning of the pictured numeric
+// output string.
+    def('#', function () { // ( ud1 -- ud2 )
+        var t = this.dpop() >>> 0;
+        var n = this.dpop() >>> 0;
+        var dd = new Long(n, t, true);
+        var base = this.getBase();
+
+        var r1 = dd.mod(base);
+        var char = r1.toInt();
+        if (char < 10) {
+            char += 48;
+        } else {
+            char += 55;
+        }
+
+        this.MEMi8[this.picturedNumericOutputAddress] = char;
+
+        this.picturedNumericOutputAddress -= 1;
+        this.picturedNumericOutputLength += 1;
+
+        dd = dd.div(base);
+
+        this.dpush(dd.low);
+        this.dpush(dd.high);
+    }, cxt);
+
 
 // 6.1.0050 #S
-    def('#s', function () { }, cxt);
+    def('#s', function () {
+        var t = this.dpop() >>> 0;
+        var n = this.dpop() >>> 0;
+        var dd = new Long(n, t, true);
+        var base = this.getBase();
 
-// 6.1.0490 <#
-    def('<#', function () {
+        do {
+            var r1 = dd.mod(base);
+            var char = r1.toInt();
+            if (char < 10) {
+                char += 48;
+            } else {
+                char += 55;
+            }
+            this.MEMi8[this.picturedNumericOutputAddress] = char;
+
+            this.picturedNumericOutputAddress -= 1;
+            this.picturedNumericOutputLength += 1;
+
+            dd = dd.div(base, true);
+        } while (!dd.eq(0));
+
+        this.dpush(dd.low);
+        this.dpush(dd.high);
 
     }, cxt);
+
 
 // 6.1.0560 >IN
     def('>in', function () {
@@ -6751,7 +6776,15 @@ function core (cxt) {
     def('exit', function () { }, cxt);
 
 // 6.1.1540 FILL
-    def('fill', function () { }, cxt);
+    def('fill', function () { // ( c-addr u char -- )
+        var char = this.dpop() >>> 0;
+        var len = this.dpop() >>> 0;
+        var addr = this.dpop() >>> 0;
+        var i;
+        for (i = 0; i < len; i++) {
+            this.MEMi8[addr + i] = char;
+        }
+    }, cxt);
 
 // 6.1.1550 FIND
     def('find', function () {
@@ -6778,22 +6811,30 @@ function core (cxt) {
         }
     }, cxt);
 
-// 6.1.1670 HOLD
-    def('hold', function () { }, cxt);
-
 // 6.1.1750 KEY
     def('key', function () {
         this.dpush(42); // TODO
     }, cxt);
 
 // 6.1.1900 MOVE
-    def('move', function () { }, cxt);
+    def('move', function () { // ( addr1 addr2 u -- )
+        var len = this.dpop() >>> 0;
+        var dst = this.dpop() >>> 0;
+        var src = this.dpop() >>> 0;
+        var i;
+        if (src > dst) {
+            for (i = 0; i < len; i++) {
+                this.MEMi8[dst + i] = this.MEMi8[src + i];
+            }
+        } else {
+            for (i = len - 1; i >= 0; i--) {
+                this.MEMi8[dst + i] = this.MEMi8[src + i];
+            }
+        }
+    }, cxt);
 
 // 6.1.2050 QUIT
     def('quit', function () { }, cxt);
-
-// 6.1.2210 SIGN
-    def('sign', function () { }, cxt);
 
 // 6.1.2216 SOURCE
     def('source', function () {
@@ -6802,7 +6843,15 @@ function core (cxt) {
     }, cxt);
 
 // 6.1.2310 TYPE
-    def('type', function () { }, cxt);
+    def('type', function () { // ( c-addr u -- )
+        var len = this.dpop();
+        var addr = this.dpop();
+        var i, char;
+        for (i = 0; i < len; i++) {
+            char = this.MEMi8[addr + i];
+            cxt.log(String.fromCharCode(char));
+        }
+    }, cxt);
 
 // 6.1.2320 U.
     def('u.', function () {
@@ -6857,7 +6906,7 @@ function core (cxt) {
 
 module.exports = core;
 
-},{"./def":31,"chai":38,"colors/safe":83}],30:[function(require,module,exports){
+},{"./def":31,"chai":38,"colors/safe":83,"long":107}],30:[function(require,module,exports){
 'use strict';
 
 var colors = require('colors/safe'),
@@ -7369,6 +7418,16 @@ function stack (cxt) {
     cxt.rpick2 = function () { return this.RS[this.RS.length - 3]; },
     cxt.rpop = function () { return this.RS.pop(); },
     cxt.rpush = function (e) { this.RS.push(e); };
+    cxt.plusloop = function () {
+        var n1 = this.rpop();
+        var limit = this.rtop();
+        var delta = n1 - limit;
+        var n = this.dpop();
+        var n2 = (n1 + n) | 0;
+        this.rpush(n2);
+        var res = ((delta ^ (delta + n)) & (delta ^ n)) < 0;
+        return res ? -1 : 0;
+    };
 
     // stack primitives
     var core = {
@@ -7507,10 +7566,11 @@ function stack (cxt) {
         // Multiply u 1 by u 2, giving the unsigned double-cell product ud.
         // All values and arithmetic are unsigned.
         'um*': function () {
-            var t = this.dpop();
-            var n = this.dpop();
-            var ddd = Long.fromInt(n, true);
-            ddd = ddd.mul(t, true);
+            var t = this.dpop() >>> 0;
+            var n = this.dpop() >>> 0;
+            var nn = Long.fromValue(n, true);
+            var tt = Long.fromValue(t, true);
+            var ddd = nn.mul(tt);
             this.dpush(ddd.low);
             this.dpush(ddd.high);
         },
@@ -7575,7 +7635,6 @@ function stack (cxt) {
             var n = this.dpop() | 0;
             var s = this.dpop() | 0;
             var ddd = new Long(s, n);
-
             var ttt = Long.fromInt(t);
 
             var r0 = ddd.div(ttt);
@@ -7584,8 +7643,8 @@ function stack (cxt) {
             var r1 = ddd.mod(ttt);
             r1 = r1.toInt();
 
-            this.dpush(r1 | 0);
-            this.dpush(r0 | 0);
+            this.dpush(r1);
+            this.dpush(r0);
         },
 
         // '?dup': null,
@@ -28856,7 +28915,7 @@ module.exports={
 },{}],108:[function(require,module,exports){
 module.exports={
   "name": "forth",
-  "version": "0.13.0",
+  "version": "0.17.0",
   "description": "Forth programming environment",
   "main": "lib/index.js",
   "bin": {
@@ -28899,9 +28958,9 @@ module.exports={
   },
   "readme": "# Forth\n[![NPM version](https://img.shields.io/npm/v/forth.svg)](https://www.npmjs.org/package/forth) [![Build Status](https://travis-ci.org/drom/forth.svg?branch=master)](https://travis-ci.org/drom/forth) [![Build status](https://ci.appveyor.com/api/projects/status/xw04eu1fa8ng167h?svg=true)](https://ci.appveyor.com/project/drom/forth)\n\nForth programming environment implemented in JavaScript.\n\n## Use\n### Node.js\n\n```\nnpm i forth -g\n```\n\n### REPL\n```\nforth\n```\n\n### Streaming CLI\n```\nforth < core.frt\n```\n\n### Library\n\n```js\nvar forth = require('forth');\nvar f = forth(); // new instance of Forth machine\n// f.s -- is the duplex stream\nprocess.stdin.pipe(f.s).pipe(process.stdout);\n```\n\n### Browser\nuse Browserify!\n\n### APIs\n#### f.interpret(input, cb)\nRun Forth interpreter.\n\n`input` can be String or Stream\n\n#### f.DS()\nData stack Array\n\n#### f.RS()\nReturn stack Array\n\n## Testing\n`npm test`\n\n## License\nMIT [LICENSE](https://github.com/drom/forth/blob/master/LICENSE).\n",
   "readmeFilename": "README.md",
-  "gitHead": "0457105116545a2faf45edeb725cbe2e89d5baef",
-  "_id": "forth@0.13.0",
-  "_shasum": "2ab1283e642ad092385952b25d43a85e94b786f8",
+  "gitHead": "037d693891d8c44d093d1376388f7fe73ce35124",
+  "_id": "forth@0.17.0",
+  "_shasum": "252bd107ea9ffc48f7120442ecbc2d38db87cb66",
   "_from": "forth@*"
 }
 
