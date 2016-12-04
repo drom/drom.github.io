@@ -149,7 +149,7 @@ var inputs = {
 };
 
 function group (body) {
-    var res = ['g', { transform: 'translate(32.5,0.5)' }];
+    var res = ['g', { transform: 'translate(0.5,0.5)' }];
     body.forEach(function (e) {
         res.push(e);
     });
@@ -159,8 +159,7 @@ function group (body) {
 function lut4cache () {
 
     cache[0xffff] = group([
-        ['text', { x: 16, y: 16, 'text-anchor': 'middle' }, '1'],
-        ['line', { x1: 20, y1: 12, x2: 48, y2: 12, stroke: '#000' }]
+        ['text', { x: 24, y: 20, 'text-anchor': 'middle' }, '1']
     ]);
 
     cache[0x0ff0] = group([
@@ -169,7 +168,7 @@ function lut4cache () {
             fill: 'none', stroke: '#000'
         }],
         ['path', {
-            d: 'M32,12' + xor,
+            d: 'M32 16' + xor,
             fill: '#ffb', stroke: '#000'
         }]
     ]);
@@ -180,7 +179,7 @@ function lut4cache () {
             fill: 'none', stroke: '#000'
         }],
         ['path', {
-            d: 'M32,12' + xor,
+            d: 'M32 16' + xor,
             fill: '#ffb', stroke: '#000'
         }]
     ]);
@@ -191,7 +190,7 @@ function lut4cache () {
             fill: 'none', stroke: '#000'
         }],
         ['path', {
-            d: 'M32,12' + buf + circle,
+            d: 'M32 16' + buf + circle,
             fill: '#ffb', stroke: '#000'
         }]
     ]);
@@ -202,33 +201,48 @@ function lut4cache () {
             fill: 'none', stroke: '#000'
         }],
         ['path', {
-            d: 'M32,12' + buf,
+            d: 'M32 16' + buf,
             fill: '#ffb', stroke: '#000'
         }]
     ]);
 
-    cache[0x8000] = group([
-        ['path', {
-            d: inputs.i0t1 + inputs.i1t2 + inputs.i2t3 + inputs.i3t4,
-            fill: 'none', stroke: '#000'
-        }],
-        ['path', {
-            d: 'M32,12' + and,
-            fill: '#ffb', stroke: '#000'
-        }]
-    ]);
+    var arr16 = Array.apply(null, Array(16));
 
-    cache[0x0001] = group([
-        ['path', {
-            d: inputs.i0t1 + inputs.i1t2 + inputs.i2t3 + inputs.i3t4,
-            fill: 'none', stroke: '#000'
-        }],
-        ['path', {
-            d: 'M32,12' + circle + or,
-            fill: '#ffb', stroke: '#000'
-        }]
-    ]);
+    arr16.forEach(function (e, i) {
+        var tt = 1 << i;
+        var res = ['g', {},
+            ['path', { d: 'M32 16' + and, fill: '#ffb', stroke: '#000' },
+                ['title', {}, tt]
+            ]
+        ];
+        [1, 2, 4, 8].forEach(function (mask, maski) {
+            if (!(i & mask)) {
+                res.push(['path', {
+                    d: 'M12 ' + (4 + 8 * maski) + circle,
+                    fill: '#ffb', stroke: '#000'
+                }]);
+            }
+        });
+        cache[tt] = res;
+    });
 
+    arr16.forEach(function (e, i) {
+        var tt = 0xffff ^ (1 << i);
+        var res = ['g', {},
+            ['path', { d: 'M32 16' + or, fill: '#ffb', stroke: '#000' },
+                ['title', {}, tt]
+            ]
+        ];
+        [1, 2, 4, 8].forEach(function (mask, maski) {
+            if (!(i & mask)) {
+                res.push(['path', {
+                    d: 'M12 ' + (4 + 8 * maski) + circle,
+                    fill: '#ffb', stroke: '#000'
+                }]);
+            }
+        });
+        cache[tt] = res;
+    });
 
     return cache;
 }
@@ -479,7 +493,6 @@ function lutSimplify (data, connections) {
     return data;
 }
 
-
 function runningSum (sum, e, idx, arr) {
     sum += e;
     arr[idx] = sum;
@@ -522,7 +535,79 @@ function fpga (params) {
         });
     });
 
+    var drivers = {};
+
+    Object.keys(cells).forEach(function (key) {
+        var cell = cells[key];
+        var loc1 = cell.attributes.loc.split(',');
+        var col = parseInt(loc1[0], 10);
+        var loc2 = loc1[1].split('/');
+        var row = parseInt(loc2[0]);
+        var lc = parseInt(loc2[1]);
+
+        'O-48-16 COUT-4-32 D_IN_0-0-20 D_IN_1-0-28'
+        .split(' ')
+        .map(function (e) {
+            var arr = e.split('-');
+            return { name: arr[0], x: parseInt(arr[1], 10), y: parseInt(arr[2], 10) };
+        })
+        .forEach(function (pin, pindex) {
+            var driver;
+            var x, y;
+            if (
+                cell.connections &&
+                cell.connections[pin.name] &&
+                cell.connections[pin.name].length
+            ) {
+                x = 16 * (colV[col] - 8) + pin.x;
+                y = 16 * (rowV[row] - 16) + 32 * lc + pin.y;
+                driver = cell.connections[pin.name][0];
+                drivers[driver] = { x: x, y: y };
+            }
+        });
+    });
+
+    console.log(drivers);
+
+    Object.keys(cells).forEach(function (key) {
+        var cell = cells[key];
+        var loc1 = cell.attributes.loc.split(',');
+        var col = parseInt(loc1[0], 10);
+        var loc2 = loc1[1].split('/');
+        var row = parseInt(loc2[0]);
+        var lc = parseInt(loc2[1]);
+
+        'I0-0-4 I1-0-12 I2-0-20 I3-0-28 D_OUT_0-0-4 D_OUT_1-0-12'
+        .split(' ')
+        .map(function (e) {
+            var arr = e.split('-');
+            return { name: arr[0], x: parseInt(arr[1], 10), y: parseInt(arr[2], 10) };
+        })
+        .forEach(function (pin) {
+            var x, y;
+            if (
+                cell.connections &&
+                cell.connections[pin.name] &&
+                cell.connections[pin.name].length &&
+                (typeof cell.connections[pin.name][0] === 'number')
+            ) {
+                var wireNumber = cell.connections[pin.name][0];
+                x = 16 * (colV[col] - 8) + pin.x;
+                y = (16 * (rowV[row] - 16) + (lc * 32)) + pin.y;
+                var groupO = ['path', {
+                    d: 'M' + drivers[wireNumber].x +
+                        ' ' + drivers[wireNumber].y +
+                        ' L ' + x + ' ' + y,
+                    fill: 'none', stroke: '#000'
+                }];
+                res.push(groupO);
+            }
+        });
+    });
+
+
     var LUT_INIT;
+
     Object.keys(cells).forEach(function (key) {
         var cell = cells[key];
         var loc1 = cell.attributes.loc.split(',');
@@ -531,7 +616,6 @@ function fpga (params) {
         var row = parseInt(loc2[0]);
         var lc = parseInt(loc2[1]);
         var group = ['g', {
-            id: cell.attributes.loc,
             transform: 'translate(' +
                 (16 * (colV[col] - 8)) + ',' +
                 (16 * (rowV[row] - 16) + (lc * 32)) + ')'
@@ -539,42 +623,43 @@ function fpga (params) {
         res.push(group);
 
         if (cell.type === 'SB_GB') {
-
             group.push(['rect', {
-                x: 32 + 2,
-                y: 32 + 2,
-                width: 28,
-                height: 28,
-                stroke: 'none',
-                fill: '#1e5'
-            }]);
+                x: 2, y: 2, width: 44, height: 28,
+                stroke: 'none', fill: '#f51'
+            }, ['title', {}, cell.attributes.loc]
+            ]);
+        }
 
+        if (cell.type === 'SB_IO') {
+            group.push(['rect', {
+                x: 2, y: 2, width: 44, height: 28,
+                stroke: 'none', fill: '#1e5'
+            }, ['title', {}, cell.attributes.loc]
+            ]);
         }
 
         if (cell.type === 'ICESTORM_LC') {
-
-            ['I0', 'I1', 'I2', 'I3']
+            'I0 I1 I2 I3'
+            .split(' ')
             .forEach(function (pin, pindx) {
                 if (typeof cell.connections[pin][0] === 'number') {
-                    group.push(['rect', {
-                        x: 16,
-                        y: 4 + 8 * pindx,
-                        width: 18,
-                        height: 1,
-                        stroke: 'none',
-                        fill: '#000'
+                    group.push(['path', {
+                        d: 'M0.5 ' + (4.5 + 8 * pindx) + ' h8',
+                        fill: 'none', stroke: '#000'
                     }]);
                 }
             });
 
+            group.push(['path', {
+                 d: 'M28.5 16.5 h20',
+                 fill: 'none', stroke: '#000'
+            }]);
+
             if (cell.parameters.CARRY_ENABLE) {
                 group.push(['rect', {
-                    x: 12,
-                    y: 24,
-                    width: 8,
-                    height: 8,
-                    stroke: 'none',
-                    fill: '#333'
+                    x: -4, y: 24,
+                    width: 8, height: 8,
+                    stroke: 'none', fill: '#333'
                 }]);
             }
 
@@ -588,13 +673,9 @@ function fpga (params) {
                 }
                 if (lut4cache[LUT_INIT] === true) {
                     group.push(['rect', {
-                        x: 32 + 2,
-                        y: 2,
-                        width: 28,
-                        height: 28,
-                        stroke: 'none',
-                        fill: '#f51'
-                    },['title', {}, cell.attributes.loc + ' ' + toString2_16(LUT_INIT)]]);
+                        x: 2, y: 2, width: 28, height: 28,
+                        stroke: 'none', fill: '#f51'
+                    }, ['title', {}, cell.attributes.loc + ' ' + toString2_16(LUT_INIT)]]);
                 } else {
                     group.push(lut4cache[LUT_INIT]);
                 }
@@ -603,12 +684,8 @@ function fpga (params) {
 
             if (cell.parameters.DFF_ENABLE) {
                 group.push(['rect', {
-                    x: 64 + 2,
-                    y: 2,
-                    width: 16,
-                    height: 28,
-                    stroke: 'none',
-                    fill: '#15f'
+                    x: 34, y: 2, width: 12, height: 28,
+                    stroke: 'none', fill: '#15f'
                 }]);
             }
 
