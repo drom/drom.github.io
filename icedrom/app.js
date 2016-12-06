@@ -598,7 +598,7 @@ function fpga (params) {
         var row = parseInt(loc2[0]);
         var lc = parseInt(loc2[1]);
 
-        'O-48-16 COUT-4-32 D_IN_0-0-20 D_IN_1-0-28'
+        'O-48-16 COUT-4-32 D_IN_0-48-16 D_IN_1-48-24'
         .split(' ')
         .map(function (e) {
             var arr = e.split('-');
@@ -629,8 +629,13 @@ function fpga (params) {
         var loc2 = loc1[1].split('/');
         var row = parseInt(loc2[0]);
         var lc = parseInt(loc2[1]);
+        var wireGroup = ['g', {
+            transform: 'translate(0.5,0.5)',
+            'stroke-linecap': 'round',
+            fill: 'none', stroke: '#777'
+        }];
 
-        'I0-0-4 I1-0-12 I2-0-20 I3-0-28 D_OUT_0-0-4 D_OUT_1-0-12'
+        'I0-0-4 I1-0-12 I2-0-20 I3-0-28 D_OUT_0-0-16 D_OUT_1-0-24'
         .split(' ')
         .map(function (e) {
             var arr = e.split('-');
@@ -650,12 +655,12 @@ function fpga (params) {
                 var groupO = ['path', {
                     d: 'M' + drivers[wireNumber].x +
                         ' ' + drivers[wireNumber].y +
-                        ' L ' + x + ' ' + y,
-                    fill: 'none', stroke: '#777'
+                        ' L ' + x + ' ' + y
                 }];
-                res.push(groupO);
+                wireGroup.push(groupO);
             }
         });
+        res.push(wireGroup);
     });
 
 
