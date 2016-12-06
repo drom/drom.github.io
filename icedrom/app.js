@@ -612,27 +612,34 @@ function fpga (params) {
         var loc2 = loc1[1].split('/');
         var row = parseInt(loc2[0]);
         var lc = parseInt(loc2[1]);
+        var connections;
+        var connectionNames;
 
-        'O-48-16 COUT-4-32 D_IN_0-48-16 D_IN_1-48-24'
-        .split(' ')
-        .map(function (e) {
-            var arr = e.split('-');
-            return { name: arr[0], x: parseInt(arr[1], 10), y: parseInt(arr[2], 10) };
-        })
-        .forEach(function (pin, pindex) {
-            var driver;
-            var x, y;
-            if (
-                cell.connections &&
-                cell.connections[pin.name] &&
-                cell.connections[pin.name].length
-            ) {
-                x = 16 * (colV[col] - 4) + pin.x;
-                y = 16 * (rowV[row] - 16) + 32 * lc + pin.y;
-                driver = cell.connections[pin.name][0];
-                drivers[driver] = { x: x, y: y };
-            }
-        });
+        if (cell.connections) {
+            connections = cell.connections;
+            connectionNames = Object.keys(connections);
+            'O-48-16 COUT-4-32 D_IN_0-48-16 D_IN_1-48-24 RDATA-48-16'
+            .split(' ')
+            .map(function (e) {
+                var arr = e.split('-');
+                return { name: arr[0], x: parseInt(arr[1], 10), y: parseInt(arr[2], 10) };
+            })
+            .forEach(function (pin) {
+                var driver;
+                var x, y;
+                connectionNames.forEach(function (name) {
+                    if (
+                        name.match(pin.name) &&
+                        connections[name].length
+                    ) {
+                        x = 16 * (colV[col] - 4) + pin.x;
+                        y = 16 * (rowV[row] - 16) + 32 * lc + pin.y;
+                        driver = connections[name][0];
+                        drivers[driver] = { x: x, y: y };
+                    }
+                });
+            });
+        }
     });
 
     console.log(drivers);
@@ -644,38 +651,47 @@ function fpga (params) {
         var loc2 = loc1[1].split('/');
         var row = parseInt(loc2[0]);
         var lc = parseInt(loc2[1]);
+        var connections;
+        var connectionNames;
+
         var wireGroup = ['g', {
             transform: 'translate(0.5,0.5)',
             'stroke-linecap': 'round',
             fill: 'none', stroke: '#777'
         }];
 
-        'I0-0-4 I1-0-12 I2-0-20 I3-0-28 D_OUT_0-0-16 D_OUT_1-0-24'
-        .split(' ')
-        .map(function (e) {
-            var arr = e.split('-');
-            return { name: arr[0], x: parseInt(arr[1], 10), y: parseInt(arr[2], 10) };
-        })
-        .forEach(function (pin) {
-            var x, y;
-            if (
-                cell.connections &&
-                cell.connections[pin.name] &&
-                cell.connections[pin.name].length &&
-                (typeof cell.connections[pin.name][0] === 'number')
-            ) {
-                var wireNumber = cell.connections[pin.name][0];
-                x = 16 * (colV[col] - 4) + pin.x;
-                y = (16 * (rowV[row] - 16) + (lc * 32)) + pin.y;
-                var groupO = ['path', {
-                    d: 'M' + drivers[wireNumber].x +
-                        ' ' + drivers[wireNumber].y +
-                        ' L ' + x + ' ' + y
-                }];
-                wireGroup.push(groupO);
-            }
-        });
-        res.push(wireGroup);
+        if (cell.connections) {
+            connections = cell.connections;
+            connectionNames = Object.keys(connections);
+            'I0-0-4 I1-0-12 I2-0-20 I3-0-28 D_OUT_0-0-16 D_OUT_1-0-24 WDATA-0-16'
+            .split(' ')
+            .map(function (e) {
+                var arr = e.split('-');
+                return { name: arr[0], x: parseInt(arr[1], 10), y: parseInt(arr[2], 10) };
+            })
+            .forEach(function (pin) {
+                var x, y;
+                connectionNames.forEach(function (name) {
+                    if (
+                        name.match(pin.name) &&
+                        connections[name].length &&
+                        (typeof connections[name][0] === 'number')
+                    ) {
+                        var wireNumber = connections[name][0];
+                        x = 16 * (colV[col] - 4) + pin.x;
+                        y = (16 * (rowV[row] - 16) + (lc * 32)) + pin.y;
+                        var groupO = ['path', {
+                            d: 'M' + drivers[wireNumber].x +
+                                ' ' + drivers[wireNumber].y +
+                                ' L ' + x + ' ' + y
+                        }];
+                        wireGroup.push(groupO);
+                    }
+                });
+            });
+
+            res.push(wireGroup);
+        }
     });
 
 
@@ -707,6 +723,14 @@ function fpga (params) {
             group.push(['rect', {
                 x: 2, y: 2, width: 44, height: 28,
                 stroke: 'none', fill: '#1e5'
+            }, ['title', {}, cell.attributes.loc]
+            ]);
+        }
+
+        if (cell.type === 'SB_RAM40_4K') {
+            group.push(['rect', {
+                x: 2, y: 2, width: 44, height: 252,
+                stroke: 'none', fill: '#d3d'
             }, ['title', {}, cell.attributes.loc]
             ]);
         }
