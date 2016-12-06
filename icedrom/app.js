@@ -1,6 +1,144 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 'use strict';
 
+function toString2_16 (data) {
+    return (
+        '0'.repeat(16) + parseInt(data, 10).toString(2)
+    ).slice(-16);
+}
+
+var dand = 'm -16,-10 5,0 c 6,0 11,4 11,10 0,6 -5,10 -11,10 l -5,0 z';
+var dor = 'm -18,-10 4,0 c 6,0 12,5 14,10 -2,5 -8,10 -14,10 l -4,0 c 2.5,-5 2.5,-15 0,-20 z';
+var xor = 'm -21,-10 c1,3 2,6 2,10 m0,0 c0,4 -1,7 -2,10 m3,-20 4,0 c6,0 12,5 14,10 -2,5 -8,10 -14,10 l-4,0 c1,-3 2,-6 2,-10 0,-4 -1,-7 -2,-10 z';
+var circle = 'm 4 0 c 0 1.1,-0.9 2,-2 2 s -2 -0.9,-2 -2 s 0.9 -2,2 -2 s 2 0.9,2 2 z';
+var buf    = 'l-12,8 v-16 z';
+
+var pinInvert = {
+    i0: ' M0.5 4.5h12' + circle,
+    i1: ' M0.5 12.5h12' + circle,
+    i2: ' M0.5 20.5h12' + circle,
+    i3: ' M0.5 28.5h12' + circle
+};
+
+var pin = {
+    i0: ' M0.5 4.5h16',
+    i1: ' M0.5 12.5h16',
+    i2: ' M0.5 20.5h16',
+    i3: ' M0.5 28.5h16'
+};
+
+function inverters (term) {
+    var res = '';
+    if (typeof term === 'object') {
+        term.forEach(function (inp) {
+            if (typeof inp === 'string') {
+                if (pin[inp]) {
+                    res += pin[inp];
+                }
+            } else {
+                if (pinInvert[inp[1]]) {
+                    res += pinInvert[inp[1]];
+                }
+            }
+        });
+    }
+    return res;
+}
+
+function and (desc) {
+    var terms = Object.keys(desc);
+    if (terms.length === 1) {
+        return ['path', {
+            d: 'M32.5 16.5' + dand + inverters(desc[terms[0]]),
+            fill: '#ffb', stroke: '#000'
+        },
+            ['title', {}, toString2_16(terms[0])]
+        ];
+    }
+}
+
+function or (desc) {
+    var terms = Object.keys(desc);
+    if (terms.length === 1) {
+        return ['path', {
+            d: 'M32.5 16.5' + dor + inverters(desc[terms[0]]),
+            fill: '#ffb', stroke: '#000'
+        },
+            ['title', {}, toString2_16(terms[0])]
+        ];
+    }
+}
+
+function xorer (desc) {
+    console.log(desc);
+    var d = 'M32.5 16.5' + xor;
+    desc.forEach(function (e, i) {
+        if (e === 1) {
+            d += pin['i' + i];
+        } else
+        if (e === 2) {
+            d += pinInvert['i' + i];
+        }
+    });
+    return ['path', { d: d, fill: '#ffb', stroke: '#000' },
+        ['title', {}, desc.join(',')]
+    ];
+}
+
+function single (desc) {
+    var keys = Object.keys(desc);
+    var term;
+    if (keys.length === 1) {
+        term = desc[keys[0]];
+        if (typeof term === 'string') {
+            return ['text', { x: 24, y: 20, 'text-anchor': 'middle' }, '1'];
+        } else
+        if (term.length === 1) {
+            if (typeof term[0] === 'string') {
+                return ['path', {
+                    d: 'M32.5 16.5' + buf,
+                    fill: '#ffb', stroke: '#000'
+                }];
+            } else {
+                return ['path', {
+                    d: 'M32.5 16.5' + buf + circle,
+                    fill: '#ffb', stroke: '#000'
+                }];
+            }
+        }
+    }
+}
+
+function blackbox (desc) {
+    return ['rect', {
+        x: 4.5, y: 2.5, width: 24, height: 28,
+        stroke: '#000', fill: '#bbb'
+    }, ['title', {}, JSON.stringify(desc)]];
+}
+
+function gates () {
+    return {
+        and: and,
+        or: or,
+        xorer: xorer,
+        single: single,
+        blackbox: blackbox
+    };
+}
+
+module.exports = gates;
+
+},{}],2:[function(require,module,exports){
+'use strict';
+
+var gates = require('./fpga-gates')();
+
+function toString2_16 (data) {
+    return (
+        '0'.repeat(16) + data.toString(2)
+    ).slice(-16);
+}
+
 function construct (data, groups) {
     var res = {};
     var tmp = 0;
@@ -40,6 +178,26 @@ function simplify (data, terms) {
     return terms;
 }
 
+function isXor4 (data) {
+    var i0s = [0x0000, 0x5555, 0xaaaa],
+        i1s = [0x0000, 0x3333, 0xcccc],
+        i2s = [0x0000, 0x0f0f, 0xf0f0],
+        i3s = [0x0000, 0x00ff, 0xff00];
+
+    var i0, i1, i2, i3;
+    for (i0 = 0; i0 < 3; i0++) {
+        for (i1 = 0; i1 < 3; i1++) {
+            for (i2 = 0; i2 < 3; i2++) {
+                for (i3 = 0; i3 < 3; i3++) {
+                    if ((i0s[i0] ^ i1s[i1] ^ i2s[i2] ^ i3s[i3]) === data) {
+                        return [i0, i1, i2, i3];
+                    }
+                }
+            }
+        }
+    }
+}
+
 function lut4 () {
 
     var g0 = {
@@ -67,7 +225,7 @@ function lut4 () {
     arr.forEach(function (a) {
         var idx = a[0];
         if (idx && !g1[idx]) {
-            g1[idx] = a[1];
+            g1[idx] = [a[1]];
         }
     });
 
@@ -76,7 +234,7 @@ function lut4 () {
         arr.forEach(function (b) {
             var idx = a[0] & b[0];
             if (idx && !g1[idx] && !g2[idx]) {
-                g2[idx] = ['&', a[1], b[1]];
+                g2[idx] = [a[1], b[1]];
             }
         });
     });
@@ -87,7 +245,7 @@ function lut4 () {
             arr.forEach(function (c) {
                 var idx = a[0] & b[0] & c[0];
                 if (idx && !g1[idx] && !g2[idx] && !g3[idx]) {
-                    g3[idx] = ['&', a[1], b[1], c[1]];
+                    g3[idx] = [a[1], b[1], c[1]];
                 }
             });
         });
@@ -100,7 +258,7 @@ function lut4 () {
                 arr.forEach(function (d) {
                     var idx = a[0] & b[0] & c[0] & d[0];
                     if (idx && !g1[idx] && !g2[idx] && !g3[idx] && !g4[idx]) {
-                        g4[idx] = ['&', a[1], b[1], c[1], d[1]];
+                        g4[idx] = [a[1], b[1], c[1], d[1]];
                     }
                 });
             });
@@ -108,148 +266,46 @@ function lut4 () {
     });
     var groups = [g0, g1, g2, g3, g4];
 
-    // groups.forEach(function (g) {
-    //     console.log(g);
-    // });
-
     return function (data) {
+        console.log(toString2_16(data));
+
         var res = construct(data, groups);
         res = simplify(data, res);
+        console.log(JSON.stringify(res, null, 4));
+
+        var resSingle = gates.single(res);
+        if (resSingle) {
+            return resSingle;
+        }
+
+        var resAnd = gates.and(res);
+        if (resAnd) {
+            return resAnd;
+        }
+
         var res1 = construct(~data & 0xffff, groups);
         res1 = simplify(~data & 0xffff, res1);
-        return [res, res1];
+        console.log(JSON.stringify(res1, null, 4));
+
+        var resOr = gates.or(res1);
+        if (resOr) {
+            return resOr;
+        }
+
+        var xorer = isXor4(data);
+        if (xorer) {
+            return gates.xorer(xorer);
+        }
+
+        console.log('BLACKBOX!');
+
+        return gates.blackbox(res);
     };
 }
 
 module.exports = lut4;
 
-},{}],2:[function(require,module,exports){
-'use strict';
-
-var cache = {};
-
-var xor = 'm -21,-10 c1,3 2,6 2,10 m0,0 c0,4 -1,7 -2,10 m3,-20 4,0 c6,0 12,5 14,10 -2,5 -8,10 -14,10 l-4,0 c1,-3 2,-6 2,-10 0,-4 -1,-7 -2,-10 z';
-// var circle = ' M 4,0 C 4,1.1  3.1,2      2,2  0.9,2   0,1.1    0,0 c 0,-1.1 0.9,-2 2,-2 1.1,0 2,0.9 2,2 z';
-var circle = 'm 4 0 c 0 1.1,-0.9 2,-2 2 s -2 -0.9,-2 -2 s 0.9 -2,2 -2 s 2 0.9,2 2 z';
-var and    = 'm -16,-10 5,0 c 6,0 11,4 11,10 0,6 -5,10 -11,10 l -5,0 z';
-var buf    = 'l-12,8 v-16 z';
-var or     = 'm -18,-10 4,0 c 6,0 12,5 14,10 -2,5 -8,10 -14,10 l -4,0 c 2.5,-5 2.5,-15 0,-20 z';
-
-var inputs = {
-    i0t1: 'M0 4 h12 v4 h4',
-
-    i1t1: 'M0 12 h4 v-4 h12',
-    i1t2: 'M0 12 h16',
-
-    i2t1: 'M0 20 h4 v-12 h12',
-    i2t3: 'M0 20 h8 v-4 h8',
-
-    i3t3: 'M0 28 h12 v-12 h4',
-    i3t4: 'M0 28 h12 v-8 h4',
-};
-
-function group (body) {
-    var res = ['g', { transform: 'translate(0.5,0.5)' }];
-    body.forEach(function (e) {
-        res.push(e);
-    });
-    return res;
-}
-
-function lut4cache () {
-
-    cache[0xffff] = group([
-        ['text', { x: 24, y: 20, 'text-anchor': 'middle' }, '1']
-    ]);
-
-    cache[0x0ff0] = group([
-        ['path', {
-            d: inputs.i2t1 + inputs.i3t3,
-            fill: 'none', stroke: '#000'
-        }],
-        ['path', {
-            d: 'M32 16' + xor,
-            fill: '#ffb', stroke: '#000'
-        }]
-    ]);
-
-    cache[0x3c3c] = group([
-        ['path', {
-            d: inputs.i1t1 + inputs.i2t3,
-            fill: 'none', stroke: '#000'
-        }],
-        ['path', {
-            d: 'M32 16' + xor,
-            fill: '#ffb', stroke: '#000'
-        }]
-    ]);
-
-    cache[0x5555] = group([
-        ['path', {
-            d: 'M0,4 h12 v8 h12',
-            fill: 'none', stroke: '#000'
-        }],
-        ['path', {
-            d: 'M32 16' + buf + circle,
-            fill: '#ffb', stroke: '#000'
-        }]
-    ]);
-
-    cache[0xaaaa] = group([
-        ['path', {
-            d: 'M0,4 h12 v8 h12',
-            fill: 'none', stroke: '#000'
-        }],
-        ['path', {
-            d: 'M32 16' + buf,
-            fill: '#ffb', stroke: '#000'
-        }]
-    ]);
-
-    var arr16 = Array.apply(null, Array(16));
-
-    arr16.forEach(function (e, i) {
-        var tt = 1 << i;
-        var res = ['g', {},
-            ['path', { d: 'M32 16' + and, fill: '#ffb', stroke: '#000' },
-                ['title', {}, tt]
-            ]
-        ];
-        [1, 2, 4, 8].forEach(function (mask, maski) {
-            if (!(i & mask)) {
-                res.push(['path', {
-                    d: 'M12 ' + (4 + 8 * maski) + circle,
-                    fill: '#ffb', stroke: '#000'
-                }]);
-            }
-        });
-        cache[tt] = res;
-    });
-
-    arr16.forEach(function (e, i) {
-        var tt = 0xffff ^ (1 << i);
-        var res = ['g', {},
-            ['path', { d: 'M32 16' + or, fill: '#ffb', stroke: '#000' },
-                ['title', {}, tt]
-            ]
-        ];
-        [1, 2, 4, 8].forEach(function (mask, maski) {
-            if (!(i & mask)) {
-                res.push(['path', {
-                    d: 'M12 ' + (4 + 8 * maski) + circle,
-                    fill: '#ffb', stroke: '#000'
-                }]);
-            }
-        });
-        cache[tt] = res;
-    });
-
-    return cache;
-}
-
-module.exports = lut4cache;
-
-},{}],3:[function(require,module,exports){
+},{"./fpga-gates":1}],3:[function(require,module,exports){
 'use strict';
 
 function isObject (o) {
@@ -453,14 +509,9 @@ module.exports = dropzone;
 },{}],6:[function(require,module,exports){
 'use strict';
 
-var lut4 = require('../lib/lut')(),
-    lut4cache = require('../lib/lut4cache')();
+var lut4 = require('../lib/lut')();
 
-function toString2_16 (data) {
-    return (
-        '0'.repeat(16) + data.toString(2)
-    ).slice(-16);
-}
+var lut4cache = {};
 
 function lutSimplify (data, connections) {
     var mask0 = [
@@ -500,7 +551,9 @@ function runningSum (sum, e, idx, arr) {
 }
 
 function fpga (params) {
-    var cells = params.body.modules.top.cells;
+    var modules = params.body.modules;
+    var moduleNames = Object.keys(modules);
+    var cells = modules[moduleNames[0]].cells;
 
     var res = ['g', {}];
 
@@ -514,7 +567,7 @@ function fpga (params) {
         var loc2 = loc1[1].split('/');
         var row = parseInt(loc2[0]);
         // var lc = parseInt(loc2[1]);
-        colV[col] = 8;
+        colV[col] = 4;
         rowV[row] = 16;
     });
 
@@ -598,7 +651,7 @@ function fpga (params) {
                     d: 'M' + drivers[wireNumber].x +
                         ' ' + drivers[wireNumber].y +
                         ' L ' + x + ' ' + y,
-                    fill: 'none', stroke: '#000'
+                    fill: 'none', stroke: '#777'
                 }];
                 res.push(groupO);
             }
@@ -668,18 +721,9 @@ function fpga (params) {
                 LUT_INIT = lutSimplify(LUT_INIT, cell.connections);
 
                 if (lut4cache[LUT_INIT] === undefined) {
-                    console.log(toString2_16(LUT_INIT), LUT_INIT, lut4(LUT_INIT));
-                    lut4cache[LUT_INIT] = true;
+                    lut4cache[LUT_INIT] = lut4(LUT_INIT);
                 }
-                if (lut4cache[LUT_INIT] === true) {
-                    group.push(['rect', {
-                        x: 2, y: 2, width: 28, height: 28,
-                        stroke: 'none', fill: '#f51'
-                    }, ['title', {}, cell.attributes.loc + ' ' + toString2_16(LUT_INIT)]]);
-                } else {
-                    group.push(lut4cache[LUT_INIT]);
-                }
-
+                group.push(lut4cache[LUT_INIT]);
             }
 
             if (cell.parameters.DFF_ENABLE) {
@@ -700,7 +744,7 @@ function fpga (params) {
 
 module.exports = fpga;
 
-},{"../lib/lut":1,"../lib/lut4cache":2}],7:[function(require,module,exports){
+},{"../lib/lut":2}],7:[function(require,module,exports){
 'use strict';
 
 var stringify = require('onml/lib/stringify'),
