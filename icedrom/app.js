@@ -612,7 +612,7 @@ function fpga (params) {
                 cell.connections[pin.name] &&
                 cell.connections[pin.name].length
             ) {
-                x = 16 * (colV[col] - 8) + pin.x;
+                x = 16 * (colV[col] - 4) + pin.x;
                 y = 16 * (rowV[row] - 16) + 32 * lc + pin.y;
                 driver = cell.connections[pin.name][0];
                 drivers[driver] = { x: x, y: y };
@@ -645,7 +645,7 @@ function fpga (params) {
                 (typeof cell.connections[pin.name][0] === 'number')
             ) {
                 var wireNumber = cell.connections[pin.name][0];
-                x = 16 * (colV[col] - 8) + pin.x;
+                x = 16 * (colV[col] - 4) + pin.x;
                 y = (16 * (rowV[row] - 16) + (lc * 32)) + pin.y;
                 var groupO = ['path', {
                     d: 'M' + drivers[wireNumber].x +
@@ -670,7 +670,7 @@ function fpga (params) {
         var lc = parseInt(loc2[1]);
         var group = ['g', {
             transform: 'translate(' +
-                (16 * (colV[col] - 8)) + ',' +
+                (16 * (colV[col] - 4)) + ',' +
                 (16 * (rowV[row] - 16) + (lc * 32)) + ')'
         }];
         res.push(group);
