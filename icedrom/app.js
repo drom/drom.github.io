@@ -618,7 +618,7 @@ function fpga (params) {
         if (cell.connections) {
             connections = cell.connections;
             connectionNames = Object.keys(connections);
-            'O-48-16 COUT-4-32 D_IN_0-48-16 D_IN_1-48-24 RDATA-48-16'
+            '^O-48-16 ^COUT-4-32 ^D_IN_0-48-16 ^D_IN_1-48-24 ^RDATA-48-16'
             .split(' ')
             .map(function (e) {
                 var arr = e.split('-');
@@ -663,7 +663,7 @@ function fpga (params) {
         if (cell.connections) {
             connections = cell.connections;
             connectionNames = Object.keys(connections);
-            'I0-0-4 I1-0-12 I2-0-20 I3-0-28 D_OUT_0-0-16 D_OUT_1-0-24 WDATA-0-16'
+            '^I0-0-4 ^I1-0-12 ^I2-0-20 ^I3-0-28 ^D_OUT_0-0-16 ^D_OUT_1-0-24 ^WDATA-0-16'
             .split(' ')
             .map(function (e) {
                 var arr = e.split('-');
@@ -720,10 +720,14 @@ function fpga (params) {
         }
 
         if (cell.type === 'SB_IO') {
-            group.push(['rect', {
-                x: 2, y: 2, width: 44, height: 28,
-                stroke: 'none', fill: '#1e5'
-            }, ['title', {}, cell.attributes.loc]
+            group.push(['g', {},
+                ['rect', {
+                    x: 2, y: 2, width: 44, height: 28,
+                    stroke: 'none', fill: '#1e5'
+                },
+                    ['title', {}, cell.attributes.loc]
+                ],
+                ['text', { x: 24, y: 20, 'text-anchor': 'middle'}, cell.connections.PACKAGE_PIN[0]]
             ]);
         }
 
