@@ -85,26 +85,41 @@ function xorer (desc) {
     ];
 }
 
+
+
 function single (desc) {
+    var term, res;
+    var wires = {
+        i0: 'M0.5 4.5  h8 v12  h24',
+        i1: 'M0.5 12.5 h8 v4   h24',
+        i2: 'M0.5 20.5 h8 v-4  h24',
+        i3: 'M0.5 28.5 h8 v-12 h24',
+    };
     var keys = Object.keys(desc);
-    var term;
     if (keys.length === 1) {
         term = desc[keys[0]];
         if (typeof term === 'string') {
-            return ['text', { x: 24, y: 20, 'text-anchor': 'middle' }, '1'];
+            return ['text', {
+                x: 24, y: 20,
+                'text-anchor': 'middle'
+            }, '1'];
         } else
         if (term.length === 1) {
-            if (typeof term[0] === 'string') {
-                return ['path', {
-                    d: 'M32.5 16.5' + buf,
-                    fill: '#ffb', stroke: '#000'
-                }];
-            } else {
-                return ['path', {
-                    d: 'M32.5 16.5' + buf + circle,
-                    fill: '#ffb', stroke: '#000'
-                }];
+            res = ['g', { stroke: '#000' },
+                ['path', {
+                    d: wires[
+                        (typeof term[0] === 'string') ? term[0] : term[0][1]
+                    ] || '',
+                    fill: 'none'
+                }]
+            ];
+            if (typeof term[0] !== 'string') {
+                res.push(['path', {
+                    d: 'M24.5 16.5' + buf + circle,
+                    fill: '#ffb'
+                }]);
             }
+            return res;
         }
     }
 }
