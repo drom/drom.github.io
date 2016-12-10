@@ -420,6 +420,115 @@ module.exports = stringify;
 },{}],4:[function(require,module,exports){
 'use strict';
 
+var token = /<o>|<ins>|<s>|<sub>|<sup>|<b>|<i>|<tt>|<\/o>|<\/ins>|<\/s>|<\/sub>|<\/sup>|<\/b>|<\/i>|<\/tt>/;
+
+function update (s, cmd) {
+    if (cmd.add) {
+        cmd.add.split(';').forEach(function (e) {
+            var arr = e.split(' ');
+            s[arr[0]][arr[1]] = true;
+        });
+    }
+    if (cmd.del) {
+        cmd.del.split(';').forEach(function (e) {
+            var arr = e.split(' ');
+            delete s[arr[0]][arr[1]];
+        });
+    }
+}
+
+var trans = {
+    '<o>'    : { add: 'text-decoration overline' },
+    '</o>'   : { del: 'text-decoration overline' },
+
+    '<ins>'  : { add: 'text-decoration underline' },
+    '</ins>' : { del: 'text-decoration underline' },
+
+    '<s>'    : { add: 'text-decoration line-through' },
+    '</s>'   : { del: 'text-decoration line-through' },
+
+    '<b>'    : { add: 'font-weight bold' },
+    '</b>'   : { del: 'font-weight bold' },
+
+    '<i>'    : { add: 'font-style italic' },
+    '</i>'   : { del: 'font-style italic' },
+
+    '<sub>'  : { add: 'baseline-shift sub;font-size .7em' },
+    '</sub>' : { del: 'baseline-shift sub;font-size .7em' },
+
+    '<sup>'  : { add: 'baseline-shift super;font-size .7em' },
+    '</sup>' : { del: 'baseline-shift super;font-size .7em' },
+
+    '<tt>'   : { add: 'font-family monospace' },
+    '</tt>'  : { del: 'font-family monospace' }
+};
+
+function dump (s) {
+    return Object.keys(s).reduce(function (pre, cur) {
+        var keys = Object.keys(s[cur]);
+        if (keys.length > 0) {
+            pre[cur] = keys.join(' ');
+        }
+        return pre;
+    }, {});
+}
+
+function parse (str) {
+    var state, res, i, m, a;
+
+    if (str === undefined) {
+        return [];
+    }
+
+    if (typeof str === 'number') {
+        return [str + ''];
+    }
+
+    if (typeof str !== 'string') {
+        return [str];
+    }
+
+    res = [];
+
+    state = {
+        'text-decoration': {},
+        'font-weight': {},
+        'font-style': {},
+        'baseline-shift': {},
+        'font-size': {},
+        'font-family': {}
+    };
+
+    while (true) {
+        i = str.search(token);
+
+        if (i === -1) {
+            res.push(['tspan', dump(state), str]);
+            return res;
+        }
+
+        if (i > 0) {
+            a = str.slice(0, i);
+            res.push(['tspan', dump(state), a]);
+        }
+
+        m = str.match(token)[0];
+
+        update(state, trans[m]);
+
+        str = str.slice(i + m.length);
+
+        if (str.length === 0) {
+            return res;
+        }
+    }
+}
+
+exports.parse = parse;
+
+},{}],5:[function(require,module,exports){
+'use strict';
+
 function arizona () {
 
     var onLoadCall;
@@ -507,21 +616,36 @@ function arizona () {
 module.exports = arizona;
 /* eslint no-console:0 */
 
-},{}],5:[function(require,module,exports){
+},{}],6:[function(require,module,exports){
 'use strict';
 
+var tspan = require('tspan');
+
 function dropzone (label) {
-    return ['g', { w: 256, h: 64, draggable: true },
-        ['rect', { x: 0, y: 0, width: 256, height: 64, fill: '#333' }],
-        ['text', { x: 128, y: 32, 'text-anchor': 'middle' },
-            ['tspan', { fill: '#fff', 'font-family': 'Helvetica' }, label]
-        ]
+    var res = ['g', { w: 640, h: 128, draggable: true },
+        ['rect', {
+            x: 0, y: 0,
+            width: 640, height: 128,
+            stroke: '#000',
+            fill: 'none',
+            'stroke-width': '1px'
+        }]
     ];
+    label.forEach(function (t, y) {
+        var ts = tspan.parse(t);
+        console.log(ts);
+        res.push(
+            ['text', { x: 320, y: 20 * y + 30, 'text-anchor': 'middle'}]
+            .concat(ts)
+        );
+    });
+    return res;
+
 }
 
 module.exports = dropzone;
 
-},{}],6:[function(require,module,exports){
+},{"tspan":4}],7:[function(require,module,exports){
 'use strict';
 
 var lut4 = require('../lib/lut')();
@@ -792,7 +916,7 @@ function fpga (params) {
 
 module.exports = fpga;
 
-},{"../lib/lut":2}],7:[function(require,module,exports){
+},{"../lib/lut":2}],8:[function(require,module,exports){
 'use strict';
 
 var stringify = require('onml/lib/stringify'),
@@ -803,7 +927,13 @@ var stringify = require('onml/lib/stringify'),
 
 var icedrom = document.getElementById('icedrom');
 
-icedrom.innerHTML = stringify(svg(dropzone('Drop post pack blif as JSON here')));
+icedrom.innerHTML = stringify(svg(dropzone([
+    '<tt><b>yosys</b> -q -p "synth_ice40 -blif $PRJ.blif" $PRJ.v</tt>',
+    '<tt><b>arachne-pnr</b> $PRJ.blif -d 8k -P tq144:4k --post-place-blif $PRJ.post.blif</tt>',
+    '<tt><b>yosys</b> -q -o $PRJ.post.json $PRJ.post.blif</tt>',
+    '',
+    '<i>Drop <b>$PRJ.post.json</b> here</i>'
+])));
 
 arizona()
     .listen(icedrom)
@@ -817,7 +947,7 @@ arizona()
         icedrom.innerHTML = stringify(mySVG);
     });
 
-},{"./arizona":4,"./dropzone":5,"./fpga":6,"./svg":8,"onml/lib/stringify":3}],8:[function(require,module,exports){
+},{"./arizona":5,"./dropzone":6,"./fpga":7,"./svg":9,"onml/lib/stringify":3}],9:[function(require,module,exports){
 'use strict';
 
 function svg (body) {
@@ -832,4 +962,4 @@ function svg (body) {
 
 module.exports = svg;
 
-},{}]},{},[7]);
+},{}]},{},[8]);
