@@ -618,7 +618,7 @@ function fpga (params) {
         if (cell.connections) {
             connections = cell.connections;
             connectionNames = Object.keys(connections);
-            '^O-48-16 ^COUT-4-32 ^D_IN_0-48-16 ^D_IN_1-48-24 ^RDATA-48-16'
+            '^O-48-16 ^COUT-4-32 ^D_IN_0-48-16 ^D_IN_1-48-24 ^RDATA-48-16 ^GLOBAL_BUFFER_OUTPUT-48-16'
             .split(' ')
             .map(function (e) {
                 var arr = e.split('-');
@@ -663,7 +663,7 @@ function fpga (params) {
         if (cell.connections) {
             connections = cell.connections;
             connectionNames = Object.keys(connections);
-            '^I0-0-4 ^I1-0-12 ^I2-0-20 ^I3-0-28 ^D_OUT_0-0-16 ^D_OUT_1-0-24 ^WDATA-0-16'
+            '^I0-0-4 ^I1-0-12 ^I2-0-20 ^I3-0-28 ^D_OUT_0-0-16 ^D_OUT_1-0-24 ^WDATA-0-16 ^WADDR-0-64 ^RADDR-0-128 ^WE-0-192 ^RE-0-208 ^WCLKE-0-224 ^RCLKE-0-240 ^USER_SIGNAL_TO_GLOBAL_BUFFER-0-16'
             .split(' ')
             .map(function (e) {
                 var arr = e.split('-');
