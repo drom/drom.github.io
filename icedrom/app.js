@@ -1,534 +1,6 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 'use strict';
 
-function toString2_16 (data) {
-    return (
-        '0'.repeat(16) + parseInt(data, 10).toString(2)
-    ).slice(-16);
-}
-
-var dand = 'm -16,-10 5,0 c 6,0 11,4 11,10 0,6 -5,10 -11,10 l -5,0 z';
-var dor = 'm -18,-10 4,0 c 6,0 12,5 14,10 -2,5 -8,10 -14,10 l -4,0 c 2.5,-5 2.5,-15 0,-20 z';
-var xor = 'm -21,-10 c1,3 2,6 2,10 m0,0 c0,4 -1,7 -2,10 m3,-20 4,0 c6,0 12,5 14,10 -2,5 -8,10 -14,10 l-4,0 c1,-3 2,-6 2,-10 0,-4 -1,-7 -2,-10 z';
-var circle = 'm 4 0 c 0 1.1,-0.9 2,-2 2 s -2 -0.9,-2 -2 s 0.9 -2,2 -2 s 2 0.9,2 2 z';
-var buf    = 'l-12,8 v-16 z';
-
-var pinInvert = {
-    i0: ' M0.5 4.5h12' + circle,
-    i1: ' M0.5 12.5h12' + circle,
-    i2: ' M0.5 20.5h12' + circle,
-    i3: ' M0.5 28.5h12' + circle
-};
-
-var pin = {
-    i0: ' M0.5 4.5h16',
-    i1: ' M0.5 12.5h16',
-    i2: ' M0.5 20.5h16',
-    i3: ' M0.5 28.5h16'
-};
-
-function inverters (term) {
-    var res = '';
-    if (typeof term === 'object') {
-        term.forEach(function (inp) {
-            if (typeof inp === 'string') {
-                if (pin[inp]) {
-                    res += pin[inp];
-                }
-            } else {
-                if (pinInvert[inp[1]]) {
-                    res += pinInvert[inp[1]];
-                }
-            }
-        });
-    }
-    return res;
-}
-
-function and (desc) {
-    var terms = Object.keys(desc);
-    if (terms.length === 1) {
-        return ['path', {
-            d: 'M32.5 16.5' + dand + inverters(desc[terms[0]]),
-            fill: '#ffb', stroke: '#000'
-        },
-            ['title', {}, toString2_16(terms[0])]
-        ];
-    }
-}
-
-function or (desc) {
-    var terms = Object.keys(desc);
-    if (terms.length === 1) {
-        return ['path', {
-            d: 'M32.5 16.5' + dor + inverters(desc[terms[0]]),
-            fill: '#ffb', stroke: '#000'
-        },
-            ['title', {}, toString2_16(terms[0])]
-        ];
-    }
-}
-
-function xorer (desc) {
-    console.log(desc);
-    var d = 'M32.5 16.5' + xor;
-    desc.forEach(function (e, i) {
-        if (e === 1) {
-            d += pin['i' + i];
-        } else
-        if (e === 2) {
-            d += pinInvert['i' + i];
-        }
-    });
-    return ['path', { d: d, fill: '#ffb', stroke: '#000' },
-        ['title', {}, desc.join(',')]
-    ];
-}
-
-
-
-function single (desc) {
-    var term, res;
-    var wires = {
-        i0: 'M0.5 4.5  h8 v12  h24',
-        i1: 'M0.5 12.5 h8 v4   h24',
-        i2: 'M0.5 20.5 h8 v-4  h24',
-        i3: 'M0.5 28.5 h8 v-12 h24',
-    };
-    var keys = Object.keys(desc);
-    if (keys.length === 1) {
-        term = desc[keys[0]];
-        if (typeof term === 'string') {
-            return ['text', {
-                x: 24, y: 20,
-                'text-anchor': 'middle'
-            }, '1'];
-        } else
-        if (term.length === 1) {
-            res = ['g', { stroke: '#000' },
-                ['path', {
-                    d: wires[
-                        (typeof term[0] === 'string') ? term[0] : term[0][1]
-                    ] || '',
-                    fill: 'none'
-                }]
-            ];
-            if (typeof term[0] !== 'string') {
-                res.push(['path', {
-                    d: 'M24.5 16.5' + buf + circle,
-                    fill: '#ffb'
-                }]);
-            }
-            return res;
-        }
-    }
-}
-
-function blackbox (desc) {
-    return ['rect', {
-        x: 4.5, y: 2.5, width: 24, height: 28,
-        stroke: '#000', fill: '#bbb'
-    }, ['title', {}, JSON.stringify(desc)]];
-}
-
-function gates () {
-    return {
-        and: and,
-        or: or,
-        xorer: xorer,
-        single: single,
-        blackbox: blackbox
-    };
-}
-
-module.exports = gates;
-
-},{}],2:[function(require,module,exports){
-'use strict';
-
-var gates = require('./fpga-gates')();
-
-function toString2_16 (data) {
-    return (
-        '0'.repeat(16) + data.toString(2)
-    ).slice(-16);
-}
-
-function construct (data, groups) {
-    var res = {};
-    var tmp = 0;
-    groups.some(function (g) {
-        return Object.keys(g).some(function (key) {
-            if ((data & key) == key) {
-                if ((tmp | key) != tmp) {
-                    res[key] = g[key];
-                    tmp = tmp | key;
-                    if (tmp == data) {
-                        return true;
-                    }
-                }
-            }
-        });
-    });
-    return res;
-}
-
-function simplify (data, terms) {
-    var masks = Object.keys(terms);
-
-    while (masks.some(function (mask, idx) {
-        var sum = 0;
-        masks.forEach(function (m1, i) {
-            if (i !== idx) {
-                sum = sum | m1;
-            }
-        });
-        if (sum == data) {
-            // console.log('removed: ' + mask);
-            masks.splice(idx, 1);
-            delete terms[mask];
-            return true;
-        }
-    })) {}
-    return terms;
-}
-
-function isXor4 (data) {
-    var i0s = [0x0000, 0x5555, 0xaaaa],
-        i1s = [0x0000, 0x3333, 0xcccc],
-        i2s = [0x0000, 0x0f0f, 0xf0f0],
-        i3s = [0x0000, 0x00ff, 0xff00];
-
-    var i0, i1, i2, i3;
-    for (i0 = 0; i0 < 3; i0++) {
-        for (i1 = 0; i1 < 3; i1++) {
-            for (i2 = 0; i2 < 3; i2++) {
-                for (i3 = 0; i3 < 3; i3++) {
-                    if ((i0s[i0] ^ i1s[i1] ^ i2s[i2] ^ i3s[i3]) === data) {
-                        return [i0, i1, i2, i3];
-                    }
-                }
-            }
-        }
-    }
-}
-
-function lut4 () {
-
-    var g0 = {
-        0xffff: '1'
-    };
-
-    var singles = [
-        [0xaaaa, 'i0'],
-        [0xcccc, 'i1'],
-        [0xf0f0, 'i2'],
-        [0xff00, 'i3']
-        // [0xff00, 'C'],
-        // [0xf0f0, 'D'],
-        // [0xcccc, 'A'],
-        // [0xaaaa, 'B']
-    ];
-
-    var arr = [];
-    singles.forEach(function (e) {
-        arr.push(e);
-        arr.push([~e[0] & 0xffff, ['~', e[1]]]);
-    });
-
-    var g1 = {};
-    arr.forEach(function (a) {
-        var idx = a[0];
-        if (idx && !g1[idx]) {
-            g1[idx] = [a[1]];
-        }
-    });
-
-    var g2 = {};
-    arr.forEach(function (a) {
-        arr.forEach(function (b) {
-            var idx = a[0] & b[0];
-            if (idx && !g1[idx] && !g2[idx]) {
-                g2[idx] = [a[1], b[1]];
-            }
-        });
-    });
-
-    var g3 = {};
-    arr.forEach(function (a) {
-        arr.forEach(function (b) {
-            arr.forEach(function (c) {
-                var idx = a[0] & b[0] & c[0];
-                if (idx && !g1[idx] && !g2[idx] && !g3[idx]) {
-                    g3[idx] = [a[1], b[1], c[1]];
-                }
-            });
-        });
-    });
-
-    var g4 = {};
-    arr.forEach(function (a) {
-        arr.forEach(function (b) {
-            arr.forEach(function (c) {
-                arr.forEach(function (d) {
-                    var idx = a[0] & b[0] & c[0] & d[0];
-                    if (idx && !g1[idx] && !g2[idx] && !g3[idx] && !g4[idx]) {
-                        g4[idx] = [a[1], b[1], c[1], d[1]];
-                    }
-                });
-            });
-        });
-    });
-    var groups = [g0, g1, g2, g3, g4];
-
-    return function (data) {
-        console.log(toString2_16(data));
-
-        var res = construct(data, groups);
-        res = simplify(data, res);
-        console.log(JSON.stringify(res, null, 4));
-
-        var resSingle = gates.single(res);
-        if (resSingle) {
-            return resSingle;
-        }
-
-        var resAnd = gates.and(res);
-        if (resAnd) {
-            return resAnd;
-        }
-
-        var res1 = construct(~data & 0xffff, groups);
-        res1 = simplify(~data & 0xffff, res1);
-        console.log(JSON.stringify(res1, null, 4));
-
-        var resOr = gates.or(res1);
-        if (resOr) {
-            return resOr;
-        }
-
-        var xorer = isXor4(data);
-        if (xorer) {
-            return gates.xorer(xorer);
-        }
-
-        console.log('BLACKBOX!');
-
-        return gates.blackbox(res);
-    };
-}
-
-module.exports = lut4;
-
-},{"./fpga-gates":1}],3:[function(require,module,exports){
-'use strict';
-
-function isObject (o) {
-    return o && Object.prototype.toString.call(o) === '[object Object]';
-}
-
-function indent (txt) {
-    var arr, res = [];
-
-    if (typeof txt !== 'string') {
-        return txt;
-    }
-
-    arr = txt.split('\n');
-
-    if (arr.length === 1) {
-        return '  ' + txt;
-    }
-
-    arr.forEach(function (e) {
-        if (e.trim() === '') {
-            res.push(e);
-            return;
-        }
-        res.push('  ' + e);
-    });
-
-    return res.join('\n');
-}
-
-function clean (txt) {
-    var arr = txt.split('\n');
-    var res = [];
-    arr.forEach(function (e) {
-        if (e.trim() === '') {
-            return;
-        }
-        res.push(e);
-    });
-    return res.join('\n');
-}
-
-function stringify (a) {
-    var res, body, isEmpty, isFlat;
-
-    body = '';
-    isFlat = true;
-    isEmpty = a.some(function (e, i, arr) {
-        if (i === 0) {
-            res = '<' + e;
-            if (arr.length === 1) {
-                return true;
-            }
-            return;
-        }
-
-        if (i === 1) {
-            if (isObject(e)) {
-                Object.keys(e).forEach(function (key) {
-                    res += ' ' + key + '="' + e[key] + '"';
-                });
-                if (arr.length === 2) {
-                    return true;
-                }
-                res += '>';
-                return;
-            } else {
-                res += '>';
-            }
-        }
-
-        switch (typeof e) {
-        case 'string':
-        case 'number':
-        case 'boolean':
-            body += e + '\n';
-            return;
-        }
-
-        isFlat = false;
-        body += stringify(e);
-    });
-
-    if (isEmpty) {
-        return res + '/>\n'; // short form
-    } else {
-        if (isFlat) {
-            return res + clean(body) + '</' + a[0] + '>\n';
-        } else {
-            return res + '\n' + indent(body) + '</' + a[0] + '>\n';
-        }
-    }
-}
-
-module.exports = stringify;
-
-},{}],4:[function(require,module,exports){
-'use strict';
-
-var token = /<o>|<ins>|<s>|<sub>|<sup>|<b>|<i>|<tt>|<\/o>|<\/ins>|<\/s>|<\/sub>|<\/sup>|<\/b>|<\/i>|<\/tt>/;
-
-function update (s, cmd) {
-    if (cmd.add) {
-        cmd.add.split(';').forEach(function (e) {
-            var arr = e.split(' ');
-            s[arr[0]][arr[1]] = true;
-        });
-    }
-    if (cmd.del) {
-        cmd.del.split(';').forEach(function (e) {
-            var arr = e.split(' ');
-            delete s[arr[0]][arr[1]];
-        });
-    }
-}
-
-var trans = {
-    '<o>'    : { add: 'text-decoration overline' },
-    '</o>'   : { del: 'text-decoration overline' },
-
-    '<ins>'  : { add: 'text-decoration underline' },
-    '</ins>' : { del: 'text-decoration underline' },
-
-    '<s>'    : { add: 'text-decoration line-through' },
-    '</s>'   : { del: 'text-decoration line-through' },
-
-    '<b>'    : { add: 'font-weight bold' },
-    '</b>'   : { del: 'font-weight bold' },
-
-    '<i>'    : { add: 'font-style italic' },
-    '</i>'   : { del: 'font-style italic' },
-
-    '<sub>'  : { add: 'baseline-shift sub;font-size .7em' },
-    '</sub>' : { del: 'baseline-shift sub;font-size .7em' },
-
-    '<sup>'  : { add: 'baseline-shift super;font-size .7em' },
-    '</sup>' : { del: 'baseline-shift super;font-size .7em' },
-
-    '<tt>'   : { add: 'font-family monospace' },
-    '</tt>'  : { del: 'font-family monospace' }
-};
-
-function dump (s) {
-    return Object.keys(s).reduce(function (pre, cur) {
-        var keys = Object.keys(s[cur]);
-        if (keys.length > 0) {
-            pre[cur] = keys.join(' ');
-        }
-        return pre;
-    }, {});
-}
-
-function parse (str) {
-    var state, res, i, m, a;
-
-    if (str === undefined) {
-        return [];
-    }
-
-    if (typeof str === 'number') {
-        return [str + ''];
-    }
-
-    if (typeof str !== 'string') {
-        return [str];
-    }
-
-    res = [];
-
-    state = {
-        'text-decoration': {},
-        'font-weight': {},
-        'font-style': {},
-        'baseline-shift': {},
-        'font-size': {},
-        'font-family': {}
-    };
-
-    while (true) {
-        i = str.search(token);
-
-        if (i === -1) {
-            res.push(['tspan', dump(state), str]);
-            return res;
-        }
-
-        if (i > 0) {
-            a = str.slice(0, i);
-            res.push(['tspan', dump(state), a]);
-        }
-
-        m = str.match(token)[0];
-
-        update(state, trans[m]);
-
-        str = str.slice(i + m.length);
-
-        if (str.length === 0) {
-            return res;
-        }
-    }
-}
-
-exports.parse = parse;
-
-},{}],5:[function(require,module,exports){
-'use strict';
-
 function arizona () {
 
     var onLoadCall;
@@ -616,7 +88,7 @@ function arizona () {
 module.exports = arizona;
 /* eslint no-console:0 */
 
-},{}],6:[function(require,module,exports){
+},{}],2:[function(require,module,exports){
 'use strict';
 
 var tspan = require('tspan');
@@ -633,9 +105,8 @@ function dropzone (label) {
     ];
     label.forEach(function (t, y) {
         var ts = tspan.parse(t);
-        console.log(ts);
         res.push(
-            ['text', { x: 320, y: 20 * y + 30, 'text-anchor': 'middle'}]
+            ['text', { x: 320, y: 20 * y, 'text-anchor': 'middle'}]
             .concat(ts)
         );
     });
@@ -645,7 +116,200 @@ function dropzone (label) {
 
 module.exports = dropzone;
 
-},{"tspan":4}],7:[function(require,module,exports){
+},{"tspan":13}],3:[function(require,module,exports){
+'use strict';
+
+var stringify = require('onml/lib/stringify'),
+    arizona = require('./arizona'),
+    dropzone = require('./dropzone'),
+    fpga = require('../lib'),
+    svg = require('./svg');
+
+var icedrom = document.getElementById('icedrom');
+
+icedrom.innerHTML = stringify(svg(dropzone([
+    '',
+    '<tt><b>yosys</b> -q -p "synth_ice40 -blif $PRJ.blif" $PRJ.v</tt>',
+    '<tt><b>arachne-pnr</b> $PRJ.blif -d 8k -P tq144:4k --post-place-blif $PRJ.post.blif</tt>',
+    '<tt><b>yosys</b> -q -o $PRJ.post.json $PRJ.post.blif</tt>',
+    '',
+    '<i>Drop <b>$PRJ.post.json</b> here</i>'
+])));
+
+arizona()
+    .listen(icedrom)
+    .onfile(function (data, name) {
+        var mySVG = svg(
+            fpga({
+                fname: name,
+                body: JSON.parse(data)
+            })
+        );
+        icedrom.innerHTML = stringify(mySVG);
+    });
+
+},{"../lib":9,"./arizona":1,"./dropzone":2,"./svg":4,"onml/lib/stringify":12}],4:[function(require,module,exports){
+'use strict';
+
+function svg (body) {
+    var opt = body[1];
+    return ['svg', {
+        xmlns: 'http://www.w3.org/2000/svg',
+        width: opt.w || 512,
+        height: opt.h || 512,
+        viewBox: [0, 0, opt.w || 512, opt.h || 512].join(' ')
+    }, body ];
+}
+
+module.exports = svg;
+
+},{}],5:[function(require,module,exports){
+'use strict';
+
+module.exports = {
+    and10: 'm-16,-10 h5 c6,0 11,4 11,10 0,6 -5,10 -11,10 h-5 z',
+    and8:  'm-12,-8  h4 c4,0 8,4 8,8 0,4 -4,8 -8,8 h-5 z',
+    and6:  'm -9,-6  h3 c3,0 6,3 6,6 0,3 -3,6 -6,6 h-3 z',
+
+    or10:  'm-18,-10' +
+        'h4 c6,0 12,5 14,10 -2,5 -8,10 -14,10 h-4' +
+        'c2.5,-5 2.5,-15 0,-20 z',
+
+    xor10: 'm-21,-10 c1,3 2,6 2,10 0,4 -1,7 -2,10' +
+        'm3,-20' +
+        'h4 c6,0 12,5 14,10 -2,5 -8,10 -14,10 h-4' +
+        'c1,-3 2,-6 2,-10 0,-4 -1,-7 -2,-10 z',
+
+    circle: 'm4,0 c0 1.1,-0.9 2,-2 2 s -2 -0.9,-2 -2 s 0.9 -2,2 -2 s 2 0.9,2 2 z',
+    buf: 'l-12,8 v-16 z'
+};
+
+},{}],6:[function(require,module,exports){
+'use strict';
+
+function expr (desc, first, last) {
+    var keys = Object.keys(desc);
+    var res = keys.map(function (key) {
+        return '(' +
+        desc[key].map(function (sig) {
+            if (typeof sig === 'string') {
+                return sig;
+            } else {
+                return sig.join('');
+            }
+        }).join(first) +
+        ')';
+    });
+    return res.join(last);
+}
+
+module.exports = expr;
+
+},{}],7:[function(require,module,exports){
+'use strict';
+
+var d = require('./d'),
+    expr = require('./expr'),
+    single = require('./single');
+
+// function toString2_16 (data) {
+//     return (
+//         '0'.repeat(16) + parseInt(data, 10).toString(2)
+//     ).slice(-16);
+// }
+
+var pinInvert = {
+    i0: ' M8.5 4.5h4' + d.circle,
+    i1: ' M8.5 12.5h4' + d.circle,
+    i2: ' M8.5 20.5h4' + d.circle,
+    i3: ' M8.5 28.5h4' + d.circle
+};
+
+var pin = {
+    i0: ' M8.5 4.5h8v2',
+    i1: ' M8.5 12.5h8',
+    i2: ' M8.5 20.5h8',
+    i3: ' M8.5 28.5h8v-2'
+};
+
+function inverters (term) {
+    var res = '';
+    if (typeof term === 'object') {
+        term.forEach(function (inp) {
+            if (typeof inp === 'string') {
+                if (pin[inp]) {
+                    res += pin[inp];
+                }
+            } else {
+                if (pinInvert[inp[1]]) {
+                    res += pinInvert[inp[1]];
+                }
+            }
+        });
+    }
+    return res;
+}
+
+function and (desc) {
+    var terms = Object.keys(desc);
+    if (terms.length === 1) {
+        return ['path', {
+            d: 'M32.5 16.5' + d.and10 + inverters(desc[terms[0]]),
+            class: 'gate'
+        },
+            ['title', {}, expr(desc, ' &amp; ', ' | ')]
+        ];
+    }
+}
+
+function or (desc) {
+    var terms = Object.keys(desc);
+    if (terms.length === 1) {
+        return ['path', {
+            d: 'M32.5 16.5' + d.or10 + inverters(desc[terms[0]]),
+            class: 'gate'
+        },
+            ['title', {}, expr(desc, ' | ', ' &amp; ')]
+        ];
+    }
+}
+
+function xorer (desc) {
+    // console.log(desc);
+    var dd = 'M32.5 16.5' + d.xor10;
+    desc.forEach(function (e, i) {
+        if (e === 1) {
+            dd += pin['i' + i];
+        } else
+        if (e === 2) {
+            dd += pinInvert['i' + i];
+        }
+    });
+    return ['path', { d: dd, class: 'gate' },
+        ['title', {}, desc.join(',')]
+    ];
+}
+
+function blackbox (desc) {
+    return ['rect', {
+        x: 8.5, y: 2.5, width: 20, height: 28,
+        class: 'bbox'
+    }, ['title', {}, expr(desc, ' &amp; ', ' | ')]];
+}
+
+function gates () {
+    return {
+        and: and,
+        or: or,
+        xorer: xorer,
+        single: single,
+        blackbox: blackbox
+    };
+}
+
+module.exports = gates;
+
+},{"./d":5,"./expr":6,"./single":11}],8:[function(require,module,exports){
 'use strict';
 
 var lut4 = require('../lib/lut')();
@@ -658,12 +322,6 @@ function lutSimplify (data, connections) {
         0x3333,
         0x0f0f,
         0x00ff
-    ];
-    var mask1 = [
-        0xaaaa,
-        0xcccc,
-        0xf0f0,
-        0xff00
     ];
     var shift = [
         1,
@@ -694,10 +352,20 @@ function fpga (params) {
     var moduleNames = Object.keys(modules);
     var cells = modules[moduleNames[0]].cells;
 
-    var res = ['g', {}];
+    var res = ['g', {},
+        ['style', { type: 'text/css' },
+            '<![CDATA[' +
+            ' .gate { fill: #ffb; stroke: #000; stroke-linecap: round }' +
+            ' .gate:hover { stroke: #00f; stroke-width: 3px }' +
+            ' .bbox { fill: #bbb; stroke: #000 }' +
+            ' .bbox:hover { stroke: #00f; stroke-width: 3px }' +
+            ' text { font-family: "monospace" }' +
+            ']]>'
+        ]
+    ];
 
-    var colV = Array.apply(null, Array(34)).map(function (e) { return 1; });
-    var rowV = Array.apply(null, Array(34)).map(function (e) { return 1; });
+    var colV = Array.apply(null, Array(34)).map(function () { return 1; });
+    var rowV = Array.apply(null, Array(34)).map(function () { return 1; });
 
     Object.keys(cells).forEach(function (key) {
         var cell = cells[key];
@@ -766,7 +434,7 @@ function fpga (params) {
         }
     });
 
-    console.log(drivers);
+    // console.log(drivers);
 
     Object.keys(cells).forEach(function (key) {
         var cell = cells[key];
@@ -876,8 +544,8 @@ function fpga (params) {
             });
 
             group.push(['path', {
-                 d: 'M28.5 16.5 h20',
-                 fill: 'none', stroke: '#000'
+                d: 'M28.5 16.5 h20',
+                fill: 'none', stroke: '#000'
             }]);
 
             if (cell.parameters.CARRY_ENABLE) {
@@ -916,50 +584,474 @@ function fpga (params) {
 
 module.exports = fpga;
 
-},{"../lib/lut":2}],8:[function(require,module,exports){
+},{"../lib/lut":10}],9:[function(require,module,exports){
 'use strict';
 
-var stringify = require('onml/lib/stringify'),
-    arizona = require('./arizona'),
-    dropzone = require('./dropzone'),
-    fpga = require('./fpga'),
-    svg = require('./svg');
+var fpga = require('./fpga');
 
-var icedrom = document.getElementById('icedrom');
+module.exports = fpga;
 
-icedrom.innerHTML = stringify(svg(dropzone([
-    '<tt><b>yosys</b> -q -p "synth_ice40 -blif $PRJ.blif" $PRJ.v</tt>',
-    '<tt><b>arachne-pnr</b> $PRJ.blif -d 8k -P tq144:4k --post-place-blif $PRJ.post.blif</tt>',
-    '<tt><b>yosys</b> -q -o $PRJ.post.json $PRJ.post.blif</tt>',
-    '',
-    '<i>Drop <b>$PRJ.post.json</b> here</i>'
-])));
-
-arizona()
-    .listen(icedrom)
-    .onfile(function (data, name) {
-        var mySVG = svg(
-            fpga({
-                fname: name,
-                body: JSON.parse(data)
-            })
-        );
-        icedrom.innerHTML = stringify(mySVG);
-    });
-
-},{"./arizona":5,"./dropzone":6,"./fpga":7,"./svg":9,"onml/lib/stringify":3}],9:[function(require,module,exports){
+},{"./fpga":8}],10:[function(require,module,exports){
 'use strict';
 
-function svg (body) {
-    var opt = body[1];
-    return ['svg', {
-        xmlns: 'http://www.w3.org/2000/svg',
-        width: opt.w || 512,
-        height: opt.h || 512,
-        viewBox: [0, 0, opt.w || 512, opt.h || 512].join(' ')
-    }, body ];
+var gates = require('./fpga-gates')();
+
+function toString2_16 (data) {
+    return (
+        '0'.repeat(16) + data.toString(2)
+    ).slice(-16);
 }
 
-module.exports = svg;
+function construct (data, groups) {
+    var res = {};
+    var tmp = 0;
+    groups.some(function (g) {
+        return Object.keys(g).some(function (key) {
+            if ((data & key) == key) {
+                if ((tmp | key) != tmp) {
+                    res[key] = g[key];
+                    tmp = tmp | key;
+                    if (tmp == data) {
+                        return true;
+                    }
+                }
+            }
+        });
+    });
+    return res;
+}
 
-},{}]},{},[8]);
+function simplify (data, terms) {
+    var masks = Object.keys(terms);
+
+    while (masks.some(function (mask, idx) {
+        var sum = 0;
+        masks.forEach(function (m1, i) {
+            if (i !== idx) {
+                sum = sum | m1;
+            }
+        });
+        if (sum == data) {
+            // console.log('removed: ' + mask);
+            masks.splice(idx, 1);
+            delete terms[mask];
+            return true;
+        }
+    }));
+    return terms;
+}
+
+function invertInputs (desc) {
+    var res = {};
+    Object.keys(desc).forEach(function (key) {
+        res[key] = desc[key].map(function (term) {
+            if (typeof term === 'string') {
+                return ['~', term];
+            } else {
+                return term[1];
+            }
+        });
+    });
+    return res;
+}
+
+function isXor4 (data) {
+    var i0s = [0x0000, 0x5555, 0xaaaa],
+        i1s = [0x0000, 0x3333, 0xcccc],
+        i2s = [0x0000, 0x0f0f, 0xf0f0],
+        i3s = [0x0000, 0x00ff, 0xff00];
+
+    var i0, i1, i2, i3;
+    for (i0 = 0; i0 < 3; i0++) {
+        for (i1 = 0; i1 < 3; i1++) {
+            for (i2 = 0; i2 < 3; i2++) {
+                for (i3 = 0; i3 < 3; i3++) {
+                    if ((i0s[i0] ^ i1s[i1] ^ i2s[i2] ^ i3s[i3]) === data) {
+                        return [i0, i1, i2, i3];
+                    }
+                }
+            }
+        }
+    }
+}
+
+function lut4 () {
+
+    var g0 = {
+        0xffff: '1'
+    };
+
+    var singles = [
+        [0xaaaa, 'i0'],
+        [0xcccc, 'i1'],
+        [0xf0f0, 'i2'],
+        [0xff00, 'i3']
+        // [0xff00, 'C'],
+        // [0xf0f0, 'D'],
+        // [0xcccc, 'A'],
+        // [0xaaaa, 'B']
+    ];
+
+    var arr = [];
+    singles.forEach(function (e) {
+        arr.push(e);
+        arr.push([~e[0] & 0xffff, ['~', e[1]]]);
+    });
+
+    var g1 = {};
+    arr.forEach(function (a) {
+        var idx = a[0];
+        if (idx && !g1[idx]) {
+            g1[idx] = [a[1]];
+        }
+    });
+
+    var g2 = {};
+    arr.forEach(function (a) {
+        arr.forEach(function (b) {
+            var idx = a[0] & b[0];
+            if (idx && !g1[idx] && !g2[idx]) {
+                g2[idx] = [a[1], b[1]];
+            }
+        });
+    });
+
+    var g3 = {};
+    arr.forEach(function (a) {
+        arr.forEach(function (b) {
+            arr.forEach(function (c) {
+                var idx = a[0] & b[0] & c[0];
+                if (idx && !g1[idx] && !g2[idx] && !g3[idx]) {
+                    g3[idx] = [a[1], b[1], c[1]];
+                }
+            });
+        });
+    });
+
+    var g4 = {};
+    arr.forEach(function (a) {
+        arr.forEach(function (b) {
+            arr.forEach(function (c) {
+                arr.forEach(function (d) {
+                    var idx = a[0] & b[0] & c[0] & d[0];
+                    if (idx && !g1[idx] && !g2[idx] && !g3[idx] && !g4[idx]) {
+                        g4[idx] = [a[1], b[1], c[1], d[1]];
+                    }
+                });
+            });
+        });
+    });
+    var groups = [g0, g1, g2, g3, g4];
+
+    return function (data) {
+        console.log(toString2_16(data));
+
+        var sumOfProducts = construct(data, groups);
+        sumOfProducts = simplify(data, sumOfProducts);
+        console.log(JSON.stringify(sumOfProducts, null, 4));
+
+        var resSingle = gates.single(sumOfProducts);
+        if (resSingle) {
+            return resSingle;
+        }
+
+        var resAnd = gates.and(sumOfProducts);
+        if (resAnd) {
+            return resAnd;
+        }
+
+        var productOfSums = construct(~data & 0xffff, groups);
+        productOfSums = simplify(~data & 0xffff, productOfSums);
+        productOfSums = invertInputs(productOfSums);
+        console.log(JSON.stringify(productOfSums, null, 4));
+
+        var resOr = gates.or(productOfSums);
+        if (resOr) {
+            return resOr;
+        }
+
+        var xorer = isXor4(data);
+        if (xorer) {
+            return gates.xorer(xorer);
+        }
+
+        console.log('BLACKBOX!');
+
+        return gates.blackbox(sumOfProducts);
+    };
+}
+
+module.exports = lut4;
+/* eslint no-console:1 */
+
+},{"./fpga-gates":7}],11:[function(require,module,exports){
+'use strict';
+
+var d = require('./d'),
+    expr = require('./expr');
+
+var wires = {
+    i0: 'M8.5 4.5  v12  h24',
+    i1: 'M8.5 12.5 v4   h24',
+    i2: 'M8.5 20.5 v-4  h24',
+    i3: 'M8.5 28.5 v-12 h24'
+};
+
+function constant (val) {
+    return ['text', {
+        x: 24, y: 20,
+        'text-anchor': 'middle'
+    }, val];
+}
+
+function single (desc) {
+    var term, res;
+    var keys = Object.keys(desc);
+
+    if (keys.length === 0) {
+        return constant(0);
+    }
+
+    if (keys.length === 1) {
+        term = desc[keys[0]];
+
+        if (typeof term === 'string') { // TODO check for value?
+            return constant(1);
+        } else
+
+        if (term.length === 1) {
+            res = ['g', { class: 'gate' },
+                ['title', {}, expr(desc, ' &amp; ', ' | ')],
+                ['path', {
+                    d: wires[
+                        (typeof term[0] === 'string') ?
+                        term[0] :
+                        term[0][1]
+                    ] || '',
+                    fill: 'none'
+                }]
+            ];
+            if (typeof term[0] !== 'string') {
+                res.push(['path', {
+                    d: 'M24.5 16.5' + d.buf + d.circle
+                }]);
+            } else {
+                res.push(['rect', {
+                    x: 8, y: 0, width: 24, height: 32,
+                    'fill-opacity': 0.1, stroke: 'none'
+                }]);
+            }
+            return res;
+        }
+    }
+}
+
+module.exports = single;
+
+},{"./d":5,"./expr":6}],12:[function(require,module,exports){
+'use strict';
+
+function isObject (o) {
+    return o && Object.prototype.toString.call(o) === '[object Object]';
+}
+
+function indent (txt) {
+    var arr, res = [];
+
+    if (typeof txt !== 'string') {
+        return txt;
+    }
+
+    arr = txt.split('\n');
+
+    if (arr.length === 1) {
+        return '  ' + txt;
+    }
+
+    arr.forEach(function (e) {
+        if (e.trim() === '') {
+            res.push(e);
+            return;
+        }
+        res.push('  ' + e);
+    });
+
+    return res.join('\n');
+}
+
+function clean (txt) {
+    var arr = txt.split('\n');
+    var res = [];
+    arr.forEach(function (e) {
+        if (e.trim() === '') {
+            return;
+        }
+        res.push(e);
+    });
+    return res.join('\n');
+}
+
+function stringify (a) {
+    var res, body, isEmpty, isFlat;
+
+    body = '';
+    isFlat = true;
+    isEmpty = a.some(function (e, i, arr) {
+        if (i === 0) {
+            res = '<' + e;
+            if (arr.length === 1) {
+                return true;
+            }
+            return;
+        }
+
+        if (i === 1) {
+            if (isObject(e)) {
+                Object.keys(e).forEach(function (key) {
+                    res += ' ' + key + '="' + e[key] + '"';
+                });
+                if (arr.length === 2) {
+                    return true;
+                }
+                res += '>';
+                return;
+            } else {
+                res += '>';
+            }
+        }
+
+        switch (typeof e) {
+        case 'string':
+        case 'number':
+        case 'boolean':
+            body += e + '\n';
+            return;
+        }
+
+        isFlat = false;
+        body += stringify(e);
+    });
+
+    if (isEmpty) {
+        return res + '/>\n'; // short form
+    } else {
+        if (isFlat) {
+            return res + clean(body) + '</' + a[0] + '>\n';
+        } else {
+            return res + '\n' + indent(body) + '</' + a[0] + '>\n';
+        }
+    }
+}
+
+module.exports = stringify;
+
+},{}],13:[function(require,module,exports){
+'use strict';
+
+var token = /<o>|<ins>|<s>|<sub>|<sup>|<b>|<i>|<tt>|<\/o>|<\/ins>|<\/s>|<\/sub>|<\/sup>|<\/b>|<\/i>|<\/tt>/;
+
+function update (s, cmd) {
+    if (cmd.add) {
+        cmd.add.split(';').forEach(function (e) {
+            var arr = e.split(' ');
+            s[arr[0]][arr[1]] = true;
+        });
+    }
+    if (cmd.del) {
+        cmd.del.split(';').forEach(function (e) {
+            var arr = e.split(' ');
+            delete s[arr[0]][arr[1]];
+        });
+    }
+}
+
+var trans = {
+    '<o>'    : { add: 'text-decoration overline' },
+    '</o>'   : { del: 'text-decoration overline' },
+
+    '<ins>'  : { add: 'text-decoration underline' },
+    '</ins>' : { del: 'text-decoration underline' },
+
+    '<s>'    : { add: 'text-decoration line-through' },
+    '</s>'   : { del: 'text-decoration line-through' },
+
+    '<b>'    : { add: 'font-weight bold' },
+    '</b>'   : { del: 'font-weight bold' },
+
+    '<i>'    : { add: 'font-style italic' },
+    '</i>'   : { del: 'font-style italic' },
+
+    '<sub>'  : { add: 'baseline-shift sub;font-size .7em' },
+    '</sub>' : { del: 'baseline-shift sub;font-size .7em' },
+
+    '<sup>'  : { add: 'baseline-shift super;font-size .7em' },
+    '</sup>' : { del: 'baseline-shift super;font-size .7em' },
+
+    '<tt>'   : { add: 'font-family monospace' },
+    '</tt>'  : { del: 'font-family monospace' }
+};
+
+function dump (s) {
+    return Object.keys(s).reduce(function (pre, cur) {
+        var keys = Object.keys(s[cur]);
+        if (keys.length > 0) {
+            pre[cur] = keys.join(' ');
+        }
+        return pre;
+    }, {});
+}
+
+function parse (str) {
+    var state, res, i, m, a;
+
+    if (str === undefined) {
+        return [];
+    }
+
+    if (typeof str === 'number') {
+        return [str + ''];
+    }
+
+    if (typeof str !== 'string') {
+        return [str];
+    }
+
+    res = [];
+
+    state = {
+        'text-decoration': {},
+        'font-weight': {},
+        'font-style': {},
+        'baseline-shift': {},
+        'font-size': {},
+        'font-family': {}
+    };
+
+    while (true) {
+        i = str.search(token);
+
+        if (i === -1) {
+            res.push(['tspan', dump(state), str]);
+            return res;
+        }
+
+        if (i > 0) {
+            a = str.slice(0, i);
+            res.push(['tspan', dump(state), a]);
+        }
+
+        m = str.match(token)[0];
+
+        update(state, trans[m]);
+
+        str = str.slice(i + m.length);
+
+        if (str.length === 0) {
+            return res;
+        }
+    }
+}
+
+exports.parse = parse;
+
+},{}]},{},[3]);
