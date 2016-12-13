@@ -206,17 +206,11 @@ function expr (desc, first, last) {
 module.exports = expr;
 
 },{}],7:[function(require,module,exports){
-'use strict';
 
+'use strict';
 var d = require('./d'),
     expr = require('./expr'),
     single = require('./single');
-
-// function toString2_16 (data) {
-//     return (
-//         '0'.repeat(16) + parseInt(data, 10).toString(2)
-//     ).slice(-16);
-// }
 
 var pinInvert = {
     i0: ' M8.5 4.5h4' + d.circle,
@@ -598,7 +592,8 @@ var gates = require('./fpga-gates')();
 
 function toString2_16 (data) {
     return (
-        '0'.repeat(16) + data.toString(2)
+        '0000000000000000' +
+        parseInt(data, 10).toString(2)
     ).slice(-16);
 }
 
