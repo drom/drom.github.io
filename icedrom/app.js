@@ -116,7 +116,7 @@ function dropzone (label) {
 
 module.exports = dropzone;
 
-},{"tspan":13}],3:[function(require,module,exports){
+},{"tspan":18}],3:[function(require,module,exports){
 'use strict';
 
 var stringify = require('onml/lib/stringify'),
@@ -148,7 +148,7 @@ arizona()
         icedrom.innerHTML = stringify(mySVG);
     });
 
-},{"../lib":9,"./arizona":1,"./dropzone":2,"./svg":4,"onml/lib/stringify":12}],4:[function(require,module,exports){
+},{"../lib":10,"./arizona":1,"./dropzone":2,"./svg":4,"onml/lib/stringify":17}],4:[function(require,module,exports){
 'use strict';
 
 function svg (body) {
@@ -166,25 +166,58 @@ module.exports = svg;
 },{}],5:[function(require,module,exports){
 'use strict';
 
+function construct (data, groups) {
+    var res = {};
+    var tmp = 0;
+    groups.some(function (g) {
+        return Object.keys(g).some(function (key) {
+            if ((data & key) == key) {
+                if ((tmp | key) != tmp) {
+                    res[key] = g[key];
+                    tmp = tmp | key;
+                    if (tmp == data) {
+                        return true;
+                    }
+                }
+            }
+        });
+    });
+    return res;
+}
+
+module.exports = construct;
+
+},{}],6:[function(require,module,exports){
+'use strict';
+
 module.exports = {
+    origin: 'M32.5,16.5',
+
+    mux01:  'h-4 z m-4,0 v-8 z m0,-8 h-6 z m-6,4 l-6,4 v-16 l6,4 z m10,8',
+    mux02:  'h-4 z m-4,0 v-4 z m0,-4 h-6 z m-6,8 l-6,4 v-24 l6,4 z m10,-4',
+
     and10: 'm-16,-10 h5 c6,0 11,4 11,10 0,6 -5,10 -11,10 h-5 z',
     and8:  'm-12,-8  h4 c4,0 8,4 8,8 0,4 -4,8 -8,8 h-5 z',
-    and6:  'm -9,-6  h3 c3,0 6,3 6,6 0,3 -3,6 -6,6 h-3 z',
+    and6:  'q0 6,-8 6 v-12 q8 0,8 6 z',
 
     or10:  'm-18,-10' +
         'h4 c6,0 12,5 14,10 -2,5 -8,10 -14,10 h-4' +
         'c2.5,-5 2.5,-15 0,-20 z',
+
+    or6: 'q-2 6,-8 6 q2 -6,0 -12 q6 0,8 6 z ',
 
     xor10: 'm-21,-10 c1,3 2,6 2,10 0,4 -1,7 -2,10' +
         'm3,-20' +
         'h4 c6,0 12,5 14,10 -2,5 -8,10 -14,10 h-4' +
         'c1,-3 2,-6 2,-10 0,-4 -1,-7 -2,-10 z',
 
+    xor6: 'q-2 6,-6 6 q2 -6,0 -12 q4 0,6 6 z m-9 -6 q2 6,0 12 z m9 6',
+
     circle: 'm4,0 c0 1.1,-0.9 2,-2 2 s -2 -0.9,-2 -2 s 0.9 -2,2 -2 s 2 0.9,2 2 z',
     buf: 'l-12,8 v-16 z'
 };
 
-},{}],6:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 'use strict';
 
 function expr (desc, first, last) {
@@ -205,7 +238,7 @@ function expr (desc, first, last) {
 
 module.exports = expr;
 
-},{}],7:[function(require,module,exports){
+},{}],8:[function(require,module,exports){
 
 'use strict';
 var d = require('./d'),
@@ -284,11 +317,16 @@ function xorer (desc) {
     ];
 }
 
-function blackbox (desc) {
+function blackbox (sumOfProducts, productOfSums) {
     return ['rect', {
         x: 8.5, y: 2.5, width: 20, height: 28,
         class: 'bbox'
-    }, ['title', {}, expr(desc, ' &amp; ', ' | ')]];
+    }, ['title', {},
+        expr(sumOfProducts, ' &amp; ', ' | ') +
+        ' \n ' +
+        expr(productOfSums, ' | ', ' &amp; ')
+        ]
+    ];
 }
 
 function gates () {
@@ -303,12 +341,14 @@ function gates () {
 
 module.exports = gates;
 
-},{"./d":5,"./expr":6,"./single":11}],8:[function(require,module,exports){
+},{"./d":6,"./expr":7,"./single":15}],9:[function(require,module,exports){
 'use strict';
 
 var lut4 = require('../lib/lut')();
-
-var lut4cache = {};
+var lut4cache = require('./lut4cache')();
+var toString2_16 = require('./to-string2_16');
+var lut4count = {};
+var blackboxes = {};
 
 function lutSimplify (data, connections) {
     var mask0 = [
@@ -385,7 +425,7 @@ function fpga (params) {
                 stroke: 'none',
                 opacity: 0.2,
                 fill: ((x + y) & 1) ? '#fff' : '#000'
-            }]);
+            }, ['title', {}, ((x + 1) + ',' + (y + 1))]]);
         });
     });
 
@@ -553,9 +593,17 @@ function fpga (params) {
             LUT_INIT = cell.parameters.LUT_INIT;
             if (LUT_INIT) {
                 LUT_INIT = lutSimplify(LUT_INIT, cell.connections);
-
+                console.log(LUT_INIT);
                 if (lut4cache[LUT_INIT] === undefined) {
                     lut4cache[LUT_INIT] = lut4(LUT_INIT);
+                    if (lut4cache[LUT_INIT][0] === 'rect') {
+                        blackboxes[LUT_INIT] = true;
+                    }
+                }
+                if (lut4count[LUT_INIT] === undefined) {
+                    lut4count[LUT_INIT] = 1;
+                } else {
+                    lut4count[LUT_INIT] += 1;
                 }
                 group.push(lut4cache[LUT_INIT]);
             }
@@ -573,82 +621,27 @@ function fpga (params) {
 
     res[1] = { w: 16 * colV[colV.length - 1], h: 16 * rowV[rowV.length - 1] };
 
+    Object.keys(blackboxes).forEach(function (key) {
+        if (lut4count[key] > 0) {
+            console.log(key + ' = ' + toString2_16(key) + ': ' + lut4count[key]);
+        }
+    });
+
     return res;
 }
 
 module.exports = fpga;
+/* eslint no-console:1 */
 
-},{"../lib/lut":10}],9:[function(require,module,exports){
+},{"../lib/lut":12,"./lut4cache":13,"./to-string2_16":16}],10:[function(require,module,exports){
 'use strict';
 
 var fpga = require('./fpga');
 
 module.exports = fpga;
 
-},{"./fpga":8}],10:[function(require,module,exports){
+},{"./fpga":9}],11:[function(require,module,exports){
 'use strict';
-
-var gates = require('./fpga-gates')();
-
-function toString2_16 (data) {
-    return (
-        '0000000000000000' +
-        parseInt(data, 10).toString(2)
-    ).slice(-16);
-}
-
-function construct (data, groups) {
-    var res = {};
-    var tmp = 0;
-    groups.some(function (g) {
-        return Object.keys(g).some(function (key) {
-            if ((data & key) == key) {
-                if ((tmp | key) != tmp) {
-                    res[key] = g[key];
-                    tmp = tmp | key;
-                    if (tmp == data) {
-                        return true;
-                    }
-                }
-            }
-        });
-    });
-    return res;
-}
-
-function simplify (data, terms) {
-    var masks = Object.keys(terms);
-
-    while (masks.some(function (mask, idx) {
-        var sum = 0;
-        masks.forEach(function (m1, i) {
-            if (i !== idx) {
-                sum = sum | m1;
-            }
-        });
-        if (sum == data) {
-            // console.log('removed: ' + mask);
-            masks.splice(idx, 1);
-            delete terms[mask];
-            return true;
-        }
-    }));
-    return terms;
-}
-
-function invertInputs (desc) {
-    var res = {};
-    Object.keys(desc).forEach(function (key) {
-        res[key] = desc[key].map(function (term) {
-            if (typeof term === 'string') {
-                return ['~', term];
-            } else {
-                return term[1];
-            }
-        });
-    });
-    return res;
-}
 
 function isXor4 (data) {
     var i0s = [0x0000, 0x5555, 0xaaaa],
@@ -668,6 +661,37 @@ function isXor4 (data) {
             }
         }
     }
+}
+
+module.exports = isXor4;
+
+},{}],12:[function(require,module,exports){
+'use strict';
+
+var gates = require('./fpga-gates')(),
+    simplify = require('./simplify'),
+    construct = require('./construct'),
+    isXor4 = require('./is-xor4');
+
+function toString2_16 (data) {
+    return (
+        '0000000000000000' +
+        parseInt(data, 10).toString(2)
+    ).slice(-16);
+}
+
+function invertInputs (desc) {
+    var res = {};
+    Object.keys(desc).forEach(function (key) {
+        res[key] = desc[key].map(function (term) {
+            if (typeof term === 'string') {
+                return ['~', term];
+            } else {
+                return term[1];
+            }
+        });
+    });
+    return res;
 }
 
 function lut4 () {
@@ -772,14 +796,212 @@ function lut4 () {
 
         console.log('BLACKBOX!');
 
-        return gates.blackbox(sumOfProducts);
+        return gates.blackbox(sumOfProducts, productOfSums);
     };
 }
 
 module.exports = lut4;
 /* eslint no-console:1 */
 
-},{"./fpga-gates":7}],11:[function(require,module,exports){
+},{"./construct":5,"./fpga-gates":8,"./is-xor4":11,"./simplify":14}],13:[function(require,module,exports){
+'use strict';
+
+var d = require('./d');
+
+// var xor = 'm -21,-10 c1,3 2,6 2,10 m0,0 c0,4 -1,7 -2,10 m3,-20 4,0 c6,0 12,5 14,10 -2,5 -8,10 -14,10 l-4,0 c1,-3 2,-6 2,-10 0,-4 -1,-7 -2,-10 z';
+// var circle = ' M 4,0 C 4,1.1  3.1,2      2,2  0.9,2   0,1.1    0,0 c 0,-1.1 0.9,-2 2,-2 1.1,0 2,0.9 2,2 z';
+// var circle = 'm 4 0 c 0 1.1,-0.9 2,-2 2 s -2 -0.9,-2 -2 s 0.9 -2,2 -2 s 2 0.9,2 2 z';
+// var and    = 'm -16,-10 5,0 c 6,0 11,4 11,10 0,6 -5,10 -11,10 l -5,0 z';
+// var buf    = 'l-12,8 v-16 z';
+// var or     = 'm -18,-10 4,0 c 6,0 12,5 14,10 -2,5 -8,10 -14,10 l -4,0 c 2.5,-5 2.5,-15 0,-20 z';
+//
+// var inputs = {
+//     i0t1: 'M0 4 h12 v4 h4',
+//
+//     i1t1: 'M0 12 h4 v-4 h12',
+//     i1t2: 'M0 12 h16',
+//
+//     i2t1: 'M0 20 h4 v-12 h12',
+//     i2t3: 'M0 20 h8 v-4 h8',
+//
+//     i3t3: 'M0 28 h12 v-12 h4',
+//     i3t4: 'M0 28 h12 v-8 h4'
+// };
+//
+// function group (body) {
+//     var res = ['g', { transform: 'translate(0.5,0.5)' }];
+//     body.forEach(function (e) {
+//         res.push(e);
+//     });
+//     return res;
+// }
+
+function lut4cache () {
+
+    var cache = {};
+
+    cache[0xcaca] = ['path', {
+        d: d.origin +
+            'm-24 -12 h8 z m24 12' +
+            'm-24 -4  h8 z m24 4 ' +
+            'm-24  4 h10 z m10 0 v-5 z m14 -4 ' +
+            d.mux01,
+        class: 'gate'
+    },
+        ['title', {}, 'i2 ? i1 : i0']
+    ];
+
+    cache[0x3caa] = ['path', {
+        d: d.origin +
+            'm-24 -12 h8 z m24 12' +
+            'm-24 12 h10 z m10 0 v-5 z m14 -12' +
+            d.mux02 +
+            'm-16,0' + d.xor6,
+        class: 'gate'
+    },
+        ['title', {}, 'i3 ? (i1 ^ i2) : i0']
+    ];
+
+    cache[0xccca] = ['path', {
+        d: d.origin +
+            'm-24 -12 h8 z m24 12' +
+            'm-24 -4  h8 z m24 4 ' +
+            'm-16 8 h2 z m2 0 v-9 z m14 -8' +
+            d.mux01 +
+            'm-16 4' + d.or6,
+        class: 'gate'
+    },
+        ['title', {}, '(i2 | i3) ? i1 : i0']
+    ];
+
+    cache[0xf800] = ['path', {
+        d: d.origin +
+            'm-24 4  h4  z m4  0 v-4 z m0 -4 h4 z m20 0' +
+            'm-24 12 h12 z m12 0 v-8 z m0 -8 h4 z m12 -4' +
+            d.and6 + ' m-8 -4' + d.or6 + 'm-8 -4' + d.and6,
+        class: 'gate'
+    },
+        ['title', {}, '((i0 &amp; i1) | i2) &amp; i3']
+    ];
+
+
+    // cache[0xffff] = group([
+    //     ['text', { x: 24, y: 20, 'text-anchor': 'middle' }, '1']
+    // ]);
+    //
+    // cache[0x0ff0] = group([
+    //     ['path', {
+    //         d: inputs.i2t1 + inputs.i3t3,
+    //         fill: 'none', stroke: '#000'
+    //     }],
+    //     ['path', {
+    //         d: 'M32 16' + xor,
+    //         fill: '#ffb', stroke: '#000'
+    //     }]
+    // ]);
+    //
+    // cache[0x3c3c] = group([
+    //     ['path', {
+    //         d: inputs.i1t1 + inputs.i2t3,
+    //         fill: 'none', stroke: '#000'
+    //     }],
+    //     ['path', {
+    //         d: 'M32 16' + xor,
+    //         fill: '#ffb', stroke: '#000'
+    //     }]
+    // ]);
+    //
+    // cache[0x5555] = group([
+    //     ['path', {
+    //         d: 'M0,4 h12 v8 h12',
+    //         fill: 'none', stroke: '#000'
+    //     }],
+    //     ['path', {
+    //         d: 'M32 16' + buf + circle,
+    //         fill: '#ffb', stroke: '#000'
+    //     }]
+    // ]);
+    //
+    // cache[0xaaaa] = group([
+    //     ['path', {
+    //         d: 'M0,4 h12 v8 h12',
+    //         fill: 'none', stroke: '#000'
+    //     }],
+    //     ['path', {
+    //         d: 'M32 16' + buf,
+    //         fill: '#ffb', stroke: '#000'
+    //     }]
+    // ]);
+    //
+    // var arr16 = Array.apply(null, Array(16));
+    //
+    // arr16.forEach(function (e, i) {
+    //     var tt = 1 << i;
+    //     var res = ['g', {},
+    //         ['path', { d: 'M32 16' + and, fill: '#ffb', stroke: '#000' },
+    //             ['title', {}, tt]
+    //         ]
+    //     ];
+    //     [1, 2, 4, 8].forEach(function (mask, maski) {
+    //         if (!(i & mask)) {
+    //             res.push(['path', {
+    //                 d: 'M12 ' + (4 + 8 * maski) + circle,
+    //                 fill: '#ffb', stroke: '#000'
+    //             }]);
+    //         }
+    //     });
+    //     cache[tt] = res;
+    // });
+    //
+    // arr16.forEach(function (e, i) {
+    //     var tt = 0xffff ^ (1 << i);
+    //     var res = ['g', {},
+    //         ['path', { d: 'M32 16' + or, fill: '#ffb', stroke: '#000' },
+    //             ['title', {}, tt]
+    //         ]
+    //     ];
+    //     [1, 2, 4, 8].forEach(function (mask, maski) {
+    //         if (!(i & mask)) {
+    //             res.push(['path', {
+    //                 d: 'M12 ' + (4 + 8 * maski) + circle,
+    //                 fill: '#ffb', stroke: '#000'
+    //             }]);
+    //         }
+    //     });
+    //     cache[tt] = res;
+    // });
+
+    return cache;
+}
+
+module.exports = lut4cache;
+
+},{"./d":6}],14:[function(require,module,exports){
+'use strict';
+
+function simplify (data, terms) {
+    var masks = Object.keys(terms);
+
+    while (masks.some(function (mask, idx) {
+        var sum = 0;
+        masks.forEach(function (m1, i) {
+            if (i !== idx) {
+                sum = sum | m1;
+            }
+        });
+        if (sum == data) {
+            // console.log('removed: ' + mask);
+            masks.splice(idx, 1);
+            delete terms[mask];
+            return true;
+        }
+    }));
+    return terms;
+}
+
+module.exports = simplify;
+
+},{}],15:[function(require,module,exports){
 'use strict';
 
 var d = require('./d'),
@@ -843,7 +1065,26 @@ function single (desc) {
 
 module.exports = single;
 
-},{"./d":5,"./expr":6}],12:[function(require,module,exports){
+},{"./d":6,"./expr":7}],16:[function(require,module,exports){
+'use strict';
+
+function toString2_16 (num) {
+    var res = '0000000000000000';
+    if (typeof num === 'string') {
+        num = parseInt(num, 10);
+    }
+    res += num.toString(2);
+    res = res.slice(-16);
+    res = res.slice(0,4) +
+        '_' + res.slice(4,8) +
+        '_' + res.slice(8,12) +
+        '_' + res.slice(12,16);
+    return res;
+}
+
+module.exports = toString2_16;
+
+},{}],17:[function(require,module,exports){
 'use strict';
 
 function isObject (o) {
@@ -940,7 +1181,7 @@ function stringify (a) {
 
 module.exports = stringify;
 
-},{}],13:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 'use strict';
 
 var token = /<o>|<ins>|<s>|<sub>|<sup>|<b>|<i>|<tt>|<\/o>|<\/ins>|<\/s>|<\/sub>|<\/sup>|<\/b>|<\/i>|<\/tt>/;
