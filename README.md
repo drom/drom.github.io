@@ -1,3 +1,1 @@
-Home
-
-[other file](other.md)
+[cube](cube/index.html)
