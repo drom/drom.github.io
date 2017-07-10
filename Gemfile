@@ -1,1 +1,1 @@
-gem "jekyll-swiss"
+gem "minima"
