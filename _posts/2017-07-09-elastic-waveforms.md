@@ -5,4 +5,4 @@ comments: true
 categories: [WaveDrom]
 ---
 
-# Elastic Waveforms
+# Intro
