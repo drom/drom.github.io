@@ -12,7 +12,7 @@ theme: minima
 
 # Integrations
 disqus:
-  disqus_short_name: drom-io
+  shortname: drom-io
   disqus_show_comment_count: true
 
 google_analytics_tracking_id: UA-67058225-1
