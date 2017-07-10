@@ -11,6 +11,8 @@ markdown: kramdown
 theme: minima
 
 # Integrations
-disqus_short_name: drom
-disqus_show_comment_count: true
+disqus:
+  disqus_short_name: drom
+  disqus_show_comment_count: true
+
 google_analytics_tracking_id: UA-67058225-1
