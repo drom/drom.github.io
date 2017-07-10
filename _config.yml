@@ -15,4 +15,4 @@ disqus:
   shortname: drom-io
   disqus_show_comment_count: true
 
-google_analytics_tracking_id: "UA-67058225-1"
+google_analytics: UA-67058225-1
