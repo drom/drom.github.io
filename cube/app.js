@@ -411,6 +411,8 @@ var onmls = require('onml/lib/stringify'),
 var moves = assets.moves;
 var root = document.getElementById('content');
 root.innerHTML = onmls(assets.template);
+  
+katex.render('x^3 - (x+y)^3 = 6 * (x + y)^2 * y + 2 * y^3', document.getElementById('formula'));
 
 Object.keys(moves).forEach(function (e) {
     var el = document.getElementById('_' + e);
