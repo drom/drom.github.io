@@ -7,3 +7,5 @@
 [cube](cube/index.html)
 
 [icedrom](icedrom/index.html)
+
+[Elastic Waveforms](elastic/waveform.md)
