@@ -1,3 +1,7 @@
 title: DROM
+
+minima:
+  date_format: "%b %-d, %Y"
+
 markdown: kramdown
 theme: minima
