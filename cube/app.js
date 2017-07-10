@@ -412,7 +412,7 @@ var moves = assets.moves;
 var root = document.getElementById('content');
 root.innerHTML = onmls(assets.template);
   
-katex.render('x^3 - (x+y)^3 = 6 * (x + y)^2 * y + 2 * y^3', document.getElementById('formula'));
+katex.render('x^3 - (x + 2 \times y)^3 = 6 \times (x + y)^2 \times y + 2 \times y^3', document.getElementById('formula'));
 
 Object.keys(moves).forEach(function (e) {
     var el = document.getElementById('_' + e);
