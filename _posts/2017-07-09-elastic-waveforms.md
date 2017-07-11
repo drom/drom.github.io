@@ -19,7 +19,7 @@ Typical waveform would have clock, data and control signals interleaved. It just
 
 Here is how AXI write burst will look like:
 
-<script type="WaveDrom">
+<pre type="WaveDrom">
 {signal: [
   {name: 'ACLK',    wave: 'p............'},
   {name: 'AWADDR',  wave: 'x=.x.........', data: ['A']},
@@ -33,7 +33,7 @@ Here is how AXI write burst will look like:
   {name: 'BVALID',  wave: '0.........10'},
   {name: 'BREADY',  wave: '0..1.......0'}
 ]}
-</script>
+</pre>
 
 Typical on-chip system will have some signals are multi-bit like most of address / data buses, and some single-bit like control signals.
 
