@@ -1,11 +1,9 @@
 ---
-title: Elastic Waveforms
+title: Folded Waveforms
 layout: post
 comments: true
 categories: [WaveDrom]
 ---
-
-# Folded Waveforms
 
 If you are doing RTL design / verification for years then you have seeing a lot of digital timing diagrams coming from you favorite simulator ModelSim, VCS, etc. For some reason engineers call them waveforms, even so they are pretty discrete.
 
