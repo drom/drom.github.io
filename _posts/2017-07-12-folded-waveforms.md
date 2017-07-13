@@ -4,8 +4,8 @@ layout: post
 comments: true
 categories: [WaveDrom]
 ---
-
 If you are doing RTL design / verification for years then you have seeing a lot of digital timing diagrams coming from you favorite simulator ModelSim, VCS, etc. For some reason engineers call them waveforms, even so they are pretty discrete.
+<!-- more -->
 
 You practically can't go around the office without seeing you colleagues staring at them. Everybody around have multi-monitor setups with bizarre orientations just to put lots of waveforms on it. You can't have meaningful conversation about the RTL design, investigate the bug, or report an issue without waveforms.
 
