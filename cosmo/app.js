@@ -44,7 +44,7 @@ function asciiParser (str) {
         xmlns: 'http://www.w3.org/2000/svg',
         'xmlns:inkscape': 'http://www.inkscape.org/namespaces/inkscape',
         'xmlns:sodipodi': 'http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd',
-        width: 256, height: (body.length * 256), viewBox: [0, 0, 256, (body.length * 256)].join(' ')
+        width: 512, height: (body.length * 256), viewBox: [0, 0, 512, (body.length * 256)].join(' ')
     }].concat(body), null, 4);
 }
 
@@ -11735,6 +11735,8 @@ const parser = require('../lib/ascii-parser.js');
 const inp = document.getElementById('inp');
 const oup = document.getElementById('oup');
 
+inp.value = localStorage.cosmodrom || 'T+RC';
+
 const cmInp = CodeMirror.fromTextArea(
     inp,
     {
@@ -11758,7 +11760,7 @@ function refresh () {
         oup.innerHTML = f;
     }, 300);
     console.log((Date.now() - time) + 'ms');
-    localStorage.forthSourceCode = source;
+    localStorage.cosmodrom = source;
 }
 
 let myTimeOut;
