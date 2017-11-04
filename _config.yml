@@ -16,3 +16,5 @@ disqus:
   disqus_show_comment_count: true
 
 google_analytics: UA-67058225-1
+
+excerpt_separator: <!--more-->
