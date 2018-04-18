@@ -6,20 +6,23 @@ const range = require('lodash.range');
 // fixed-point NCO model
 module.exports = function (addrWidth, dataWidth, nCordics) {
     addrWidth = addrWidth >>> 0;
+
+    const corrector = 2;
+
     const lutSize = Math.pow(2, addrWidth);
     const dataScale = (1 << dataWidth);
     const extraScale = ((1 / Math.cos(Math.PI / 8 / lutSize) - 1) * 0.5 + 1);
-    // console.log(extraScale);
+    const cordicScale = 1 / range(nCordics)
+        .map(i => 1 / Math.cos(Math.atan(1.35 / (1 << (i + addrWidth + corrector)))))
+        .reduce((prev, cur) => (prev * cur), 1);
 
     // SIN-COS Look-Up table
     const lut = Array(lutSize)
         .fill(0)
         .map((e, i) => Math.PI * ((i + 0.5) / lutSize / 4))
         .map(phi => ({
-            // re: (dataScale * Math.cos(phi)) | 0,
-            // im: (dataScale * Math.sin(phi)) | 0
-            re: Math.round(dataScale * extraScale * Math.cos(phi)) | 0,
-            im: Math.round(dataScale * extraScale * Math.sin(phi)) | 0
+            re: Math.round(dataScale * cordicScale * extraScale * Math.cos(phi)) | 0,
+            im: Math.round(dataScale * cordicScale * extraScale * Math.sin(phi)) | 0
         }));
 
     // console.log(lut);
@@ -38,7 +41,6 @@ module.exports = function (addrWidth, dataWidth, nCordics) {
 
     // console.log(betaOffset);
 
-    const corrector = 2;
     const cordics = range(nCordics).map(i => ({
         // sigma: Math.atan(1 / (1 << (i + addrWidth))),
         // sigma: (Math.atan(1 / (1 << (i + addrWidth + 2))) * 32 * (1 << (33 - addrWidth)) << betaOffset) >>>0,
@@ -65,38 +67,38 @@ module.exports = function (addrWidth, dataWidth, nCordics) {
             val.im = -val.im;
         }
 
-        // console.log(beta);
 
-        let beta = ((angle & betaMask) << betaOffset) ^ 0x7fffffff;
-        cordics.map(p => {
-            if (beta > 0) {
-                beta = beta - p.sigma;
-                const re = val.re + (val.im >> p.shift);
-                val.im   = val.im - (val.re >> p.shift);
-                val.re   = re;
-            } else {
-                beta = beta + p.sigma;
-                const re = val.re - (val.im >> p.shift);
-                val.im   = val.im + (val.re >> p.shift);
-                val.re   = re;
-            }
-            // console.log(beta, p.sigma, val.re, val.im);
-        });
-
-        // let beta = ((angle & betaMask) << betaOffset) ^ 0x80000000;
+        // let beta = ((angle & betaMask) << betaOffset) ^ 0x7fffffff;
         // cordics.map(p => {
         //     if (beta > 0) {
         //         beta = beta - p.sigma;
-        //         const re = val.re - (val.im >> p.shift);
-        //         val.im   = val.im + (val.re >> p.shift);
-        //         val.re   = re;
-        //     } else {
-        //         beta = beta + p.sigma;
         //         const re = val.re + (val.im >> p.shift);
         //         val.im   = val.im - (val.re >> p.shift);
         //         val.re   = re;
+        //     } else {
+        //         beta = beta + p.sigma;
+        //         const re = val.re - (val.im >> p.shift);
+        //         val.im   = val.im + (val.re >> p.shift);
+        //         val.re   = re;
         //     }
+        //     // console.log(beta, p.sigma, val.re, val.im);
         // });
+
+        let beta = ((angle & betaMask) << betaOffset) ^ 0x80000000;
+        cordics.map(p => {
+            if (beta > 0) {
+                beta = beta - p.sigma;
+                const re = val.re - (val.im >> p.shift);
+                val.im   = val.im + (val.re >> p.shift);
+                val.re   = re;
+            } else {
+                beta = beta + p.sigma;
+                const re = val.re + (val.im >> p.shift);
+                val.im   = val.im - (val.re >> p.shift);
+                val.re   = re;
+            }
+        });
+        // console.log(beta);
 
         return {
             re: val.re / dataScale,
@@ -229,8 +231,10 @@ module.exports = config => {
         .concat(range(config.nCordics).map(i => ({
             dataWidth: dataWidth,
             addrWidth: addrWidth,
-            nCordics: i
+            nCordics: i + 1
         })));
+
+    // console.log(designs);
 
     const results = designs.map(design => {
         const model = genModel(design.addrWidth, design.dataWidth, design.nCordics);
@@ -26861,8 +26865,8 @@ class App extends React.Component {
             schema: {
                 type: 'object',
                 properties: {
-                    dataWidth: {type: 'number', minimum: 4, maximum: 31, title: 'LUT data width: '},
-                    addrWidth: {type: 'number', minimum: 1, maximum: 18, title: 'LUT address width: '},
+                    dataWidth: {type: 'number', minimum: 4, maximum: 31, title: 'I/Q LUT data width [bit] : 2 * '},
+                    addrWidth: {type: 'number', minimum: 1, maximum: 18, title: 'LUT address width [bit] : '},
                     nCordics:  {type: 'number', minimum: 0, maximum: 12, title: 'number of CORDIC stages: '}
                 }
             },
