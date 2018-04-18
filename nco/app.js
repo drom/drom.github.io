@@ -4,10 +4,8 @@
 const range = require('lodash.range');
 
 // fixed-point NCO model
-module.exports = function (addrWidth, dataWidth, nCordics) {
+module.exports = function (addrWidth, dataWidth, nCordics, corrector) {
     addrWidth = addrWidth >>> 0;
-
-    const corrector = 2;
 
     const lutSize = Math.pow(2, addrWidth);
     const dataScale = (1 << dataWidth);
@@ -224,12 +222,10 @@ module.exports = config => {
     const dataWidth = config.dataWidth;
 
     const designs = range(addrWidth).map(i => ({
-        dataWidth: dataWidth,
         addrWidth: i + 1,
         nCordics: 0
     }))
         .concat(range(config.nCordics).map(i => ({
-            dataWidth: dataWidth,
             addrWidth: addrWidth,
             nCordics: i + 1
         })));
@@ -237,7 +233,7 @@ module.exports = config => {
     // console.log(designs);
 
     const results = designs.map(design => {
-        const model = genModel(design.addrWidth, design.dataWidth, design.nCordics);
+        const model = genModel(design.addrWidth, dataWidth, design.nCordics, config.corrector);
         const errors = Array(5000).fill(0).map(() => {
             const phase = randomPhase();
             // const phase = (i << (32 - 3 - 2) >>> 0);
@@ -26867,7 +26863,8 @@ class App extends React.Component {
                 properties: {
                     dataWidth: {type: 'number', minimum: 4, maximum: 31, title: 'I/Q LUT data width [bit] : 2 * '},
                     addrWidth: {type: 'number', minimum: 1, maximum: 18, title: 'LUT address width [bit] : '},
-                    nCordics:  {type: 'number', minimum: 0, maximum: 12, title: 'number of CORDIC stages: '}
+                    nCordics:  {type: 'number', minimum: 0, maximum: 12, title: 'number of CORDIC stages: '},
+                    corrector: {type: 'number', minimum: 1, maximum: 4,  title: 'CORDIC step correction: '}
                 }
             },
             path: [],
@@ -26894,9 +26891,10 @@ class App extends React.Component {
 
 ReactDOM.render(
     $(App, {data: {
-        dataWidth: 12,
-        addrWidth: 2,
-        nCordics: 0
+        dataWidth: 16,
+        addrWidth: 4,
+        nCordics: 0,
+        corrector: 2
     }}),
     document.getElementById('root')
 );
