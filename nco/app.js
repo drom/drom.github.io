@@ -8,8 +8,14 @@ module.exports = function (addrWidth, dataWidth, nCordics, corrector) {
     addrWidth = addrWidth >>> 0;
 
     const lutSize = Math.pow(2, addrWidth);
+
+    // float to fixed point
     const dataScale = (1 << dataWidth);
+
+    // circle approximation error correction
     const extraScale = ((1 / Math.cos(Math.PI / 8 / lutSize) - 1) * 0.5 + 1);
+
+    // compensate for cordic scale
     const cordicScale = 1 / range(nCordics)
         .map(i => 1 / Math.cos(Math.atan(1.35 / (1 << (i + addrWidth + corrector)))))
         .reduce((prev, cur) => (prev * cur), 1);
@@ -23,7 +29,7 @@ module.exports = function (addrWidth, dataWidth, nCordics, corrector) {
             im: Math.round(dataScale * cordicScale * extraScale * Math.sin(phi)) | 0
         }));
 
-    // console.log(lut);
+    console.log(lut);
     // const betaRange = 2 * Math.PI / 8 / lutSize;
     // const startShift = -Math.log2(Math.tan(betaRange));
     // console.log('beta=' + betaRange, 'tan=' + startShift);
@@ -46,10 +52,13 @@ module.exports = function (addrWidth, dataWidth, nCordics, corrector) {
         shift: i + addrWidth + corrector
     }));
 
-    // console.log(cordics);
+    console.log(cordics);
 
     return function (angle) {
         angle = angle >>> 0;
+
+        // phase <3bit>, addr <addrWidth>, beta<rest>
+
         const rawAddr = (angle >>> addrOffset) & addrMask;
         const phase = (angle >>> phaseOffset) & phaseMask;
         const addr = (phase & 1) ? rawAddr ^ addrMask : rawAddr;
@@ -64,6 +73,8 @@ module.exports = function (addrWidth, dataWidth, nCordics, corrector) {
         if (((phase >> 2) & 1)) {
             val.im = -val.im;
         }
+
+        // beta<> , val<I,Q>
 
 
         // let beta = ((angle & betaMask) << betaOffset) ^ 0x7fffffff;
@@ -105,7 +116,7 @@ module.exports = function (addrWidth, dataWidth, nCordics, corrector) {
     };
 };
 
-},{"lodash.range":23}],2:[function(require,module,exports){
+},{"lodash.range":24}],2:[function(require,module,exports){
 'use strict';
 
 const range = require('lodash.range');
@@ -176,7 +187,74 @@ module.exports = React => {
     };
 };
 
-},{"lodash.range":23}],3:[function(require,module,exports){
+},{"lodash.range":24}],3:[function(require,module,exports){
+'use strict';
+
+const range = require('lodash.range');
+
+const hsl = idx => 'hsl(' + (idx * 77) % 360 + ', 100%, 40%)';
+
+module.exports = React => {
+    const $ = React.createElement;
+    return () => {
+        return props => {
+            const w = 1024;
+            const h = 1024;
+            return $('span', {},
+                $('svg', {
+                    xmlns: 'http://www.w3.org/2000/svg',
+                    width: w + 1,
+                    height: h + 1,
+                    viewBox: [0, 0, w + 1, h + 1].join(' ')
+                },
+                $('g', {transform: 'translate(.5, .5)'},
+                    $('rect', {
+                        x: 0, y: 0, width: w, height: h,
+                        fill: 'none', stroke: 'black'
+                    }),
+                    $('g', {'strokeDasharray': '2,6'},
+                        range(31, 0).map(i => $('line', {
+                            key: i,
+                            stroke: '#aaa',
+                            x1: 0, x2: w,
+                            y1: 32 * i, y2: 32 * i
+                        }))
+                    ),
+                    $('g', {'strokeDasharray': '2,6'},
+                        range(32).map(i => $('line', {
+                            key: i,
+                            stroke: '#aaa',
+                            x1: 32 * i, x2: 32 * i,
+                            y1: 0, y2: h
+                        }))
+                    ),
+                    $('text', {
+                        x: w / 2,
+                        y: 20,
+                        textAnchor: 'middle'
+                    }, 'Error vector magnitude EVM '),
+                    $('path', {
+                        fill: 'none',
+                        stroke: '#000',
+                        d: 'M' + props.data.map((val, idx) =>
+                            (idx * 32 + 32) + ' ' + (-val * 32)
+                        ).join('L')
+                    }),
+                    props.data.map((val, idx) =>
+                        $('circle', {
+                            cx: (idx * 32 + 32),
+                            cy: (-val * 32),
+                            r: 4,
+                            fill: hsl(idx)
+                        })
+                    )
+                ))
+            );
+        };
+    };
+};
+
+},{"lodash.range":24}],4:[function(require,module,exports){
 'use strict';
 
 const range = require('lodash.range');
@@ -216,6 +294,12 @@ const hullErr = arr => {
     return cont1;
 };
 
+const evm = arr => Math.log2(
+    arr.reduce((prev, cur) =>
+        prev + (cur.re * cur.im) + (cur.im * cur.im), 0
+    ) / arr.length
+);
+
 module.exports = config => {
     // create chain of designs
     const addrWidth = config.addrWidth;
@@ -232,7 +316,10 @@ module.exports = config => {
 
     // console.log(designs);
 
-    const results = designs.map(design => {
+    let contours = [];
+    let evms = [];
+
+    designs.map((design) => {
         const model = genModel(design.addrWidth, dataWidth, design.nCordics, config.corrector);
         const errors = Array(5000).fill(0).map(() => {
             const phase = randomPhase();
@@ -242,13 +329,17 @@ module.exports = config => {
             // return errMag(ref, res);
             return errVectorRot(ref, res);
         });
-        return hullErr(errors);
+        contours.push(hullErr(errors));
+        evms.push(evm(errors));
     });
 
-    return results;
+    return {
+        contours: contours,
+        evms: evms
+    };
 };
 
-},{"./model":1,"d3-polygon":4,"lodash.range":23}],4:[function(require,module,exports){
+},{"./model":1,"d3-polygon":5,"lodash.range":24}],5:[function(require,module,exports){
 // https://d3js.org/d3-polygon/ Version 1.0.3. Copyright 2017 Mike Bostock.
 (function (global, factory) {
 	typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
@@ -400,7 +491,7 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 })));
 
-},{}],5:[function(require,module,exports){
+},{}],6:[function(require,module,exports){
 /**
  * Copyright (c) 2013-present, Facebook, Inc.
  *
@@ -434,7 +525,7 @@ var ExecutionEnvironment = {
 };
 
 module.exports = ExecutionEnvironment;
-},{}],6:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 "use strict";
 
 /**
@@ -464,7 +555,7 @@ function camelize(string) {
 }
 
 module.exports = camelize;
-},{}],7:[function(require,module,exports){
+},{}],8:[function(require,module,exports){
 /**
  * Copyright (c) 2013-present, Facebook, Inc.
  *
@@ -502,7 +593,7 @@ function camelizeStyleName(string) {
 }
 
 module.exports = camelizeStyleName;
-},{"./camelize":6}],8:[function(require,module,exports){
+},{"./camelize":7}],9:[function(require,module,exports){
 'use strict';
 
 /**
@@ -540,7 +631,7 @@ function containsNode(outerNode, innerNode) {
 }
 
 module.exports = containsNode;
-},{"./isTextNode":16}],9:[function(require,module,exports){
+},{"./isTextNode":17}],10:[function(require,module,exports){
 "use strict";
 
 /**
@@ -577,7 +668,7 @@ emptyFunction.thatReturnsArgument = function (arg) {
 };
 
 module.exports = emptyFunction;
-},{}],10:[function(require,module,exports){
+},{}],11:[function(require,module,exports){
 (function (process){
 /**
  * Copyright (c) 2013-present, Facebook, Inc.
@@ -597,7 +688,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 module.exports = emptyObject;
 }).call(this,require('_process'))
-},{"_process":25}],11:[function(require,module,exports){
+},{"_process":26}],12:[function(require,module,exports){
 'use strict';
 
 /**
@@ -634,7 +725,7 @@ function getActiveElement(doc) /*?DOMElement*/{
 }
 
 module.exports = getActiveElement;
-},{}],12:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
 'use strict';
 
 /**
@@ -665,7 +756,7 @@ function hyphenate(string) {
 }
 
 module.exports = hyphenate;
-},{}],13:[function(require,module,exports){
+},{}],14:[function(require,module,exports){
 /**
  * Copyright (c) 2013-present, Facebook, Inc.
  *
@@ -702,7 +793,7 @@ function hyphenateStyleName(string) {
 }
 
 module.exports = hyphenateStyleName;
-},{"./hyphenate":12}],14:[function(require,module,exports){
+},{"./hyphenate":13}],15:[function(require,module,exports){
 (function (process){
 /**
  * Copyright (c) 2013-present, Facebook, Inc.
@@ -758,7 +849,7 @@ function invariant(condition, format, a, b, c, d, e, f) {
 
 module.exports = invariant;
 }).call(this,require('_process'))
-},{"_process":25}],15:[function(require,module,exports){
+},{"_process":26}],16:[function(require,module,exports){
 'use strict';
 
 /**
@@ -781,7 +872,7 @@ function isNode(object) {
 }
 
 module.exports = isNode;
-},{}],16:[function(require,module,exports){
+},{}],17:[function(require,module,exports){
 'use strict';
 
 /**
@@ -804,7 +895,7 @@ function isTextNode(object) {
 }
 
 module.exports = isTextNode;
-},{"./isNode":15}],17:[function(require,module,exports){
+},{"./isNode":16}],18:[function(require,module,exports){
 /**
  * Copyright (c) 2013-present, Facebook, Inc.
  *
@@ -870,7 +961,7 @@ function shallowEqual(objA, objB) {
 }
 
 module.exports = shallowEqual;
-},{}],18:[function(require,module,exports){
+},{}],19:[function(require,module,exports){
 (function (process){
 /**
  * Copyright (c) 2014-present, Facebook, Inc.
@@ -935,7 +1026,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 module.exports = warning;
 }).call(this,require('_process'))
-},{"./emptyFunction":9,"_process":25}],19:[function(require,module,exports){
+},{"./emptyFunction":10,"_process":26}],20:[function(require,module,exports){
 var invariant = require('invariant');
 
 var hasOwnProperty = Object.prototype.hasOwnProperty;
@@ -1199,7 +1290,7 @@ function invariantMapOrSet(target, command) {
   );
 }
 
-},{"invariant":20}],20:[function(require,module,exports){
+},{"invariant":21}],21:[function(require,module,exports){
 (function (process){
 /**
  * Copyright (c) 2013-present, Facebook, Inc.
@@ -1252,7 +1343,7 @@ var invariant = function(condition, format, a, b, c, d, e, f) {
 module.exports = invariant;
 
 }).call(this,require('_process'))
-},{"_process":25}],21:[function(require,module,exports){
+},{"_process":26}],22:[function(require,module,exports){
 (function (global){
 /**
  * lodash (Custom Build) <https://lodash.com/>
@@ -3004,7 +3095,7 @@ function stubFalse() {
 module.exports = cloneDeep;
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],22:[function(require,module,exports){
+},{}],23:[function(require,module,exports){
 (function (global){
 /**
  * Lodash (Custom Build) <https://lodash.com/>
@@ -4971,7 +5062,7 @@ function stubFalse() {
 module.exports = mergeWith;
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],23:[function(require,module,exports){
+},{}],24:[function(require,module,exports){
 /**
  * lodash (Custom Build) <https://lodash.com/>
  * Build: `lodash modularize exports="npm" -o ./`
@@ -5435,7 +5526,7 @@ var range = createRange();
 
 module.exports = range;
 
-},{}],24:[function(require,module,exports){
+},{}],25:[function(require,module,exports){
 /*
 object-assign
 (c) Sindre Sorhus
@@ -5527,7 +5618,7 @@ module.exports = shouldUseNative() ? Object.assign : function (target, source) {
 	return to;
 };
 
-},{}],25:[function(require,module,exports){
+},{}],26:[function(require,module,exports){
 // shim for using process in browser
 var process = module.exports = {};
 
@@ -5713,7 +5804,7 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],26:[function(require,module,exports){
+},{}],27:[function(require,module,exports){
 (function (process){
 /**
  * Copyright (c) 2013-present, Facebook, Inc.
@@ -5776,7 +5867,7 @@ function checkPropTypes(typeSpecs, values, location, componentName, getStack) {
 module.exports = checkPropTypes;
 
 }).call(this,require('_process'))
-},{"./lib/ReactPropTypesSecret":27,"_process":25,"fbjs/lib/invariant":14,"fbjs/lib/warning":18}],27:[function(require,module,exports){
+},{"./lib/ReactPropTypesSecret":28,"_process":26,"fbjs/lib/invariant":15,"fbjs/lib/warning":19}],28:[function(require,module,exports){
 /**
  * Copyright (c) 2013-present, Facebook, Inc.
  *
@@ -5790,7 +5881,7 @@ var ReactPropTypesSecret = 'SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED';
 
 module.exports = ReactPropTypesSecret;
 
-},{}],28:[function(require,module,exports){
+},{}],29:[function(require,module,exports){
 (function (process){
 /** @license React v16.3.1
  * react-dom.development.js
@@ -22418,7 +22509,7 @@ module.exports = reactDom;
 }
 
 }).call(this,require('_process'))
-},{"_process":25,"fbjs/lib/ExecutionEnvironment":5,"fbjs/lib/camelizeStyleName":7,"fbjs/lib/containsNode":8,"fbjs/lib/emptyFunction":9,"fbjs/lib/emptyObject":10,"fbjs/lib/getActiveElement":11,"fbjs/lib/hyphenateStyleName":13,"fbjs/lib/invariant":14,"fbjs/lib/shallowEqual":17,"fbjs/lib/warning":18,"object-assign":24,"prop-types/checkPropTypes":26,"react":33}],29:[function(require,module,exports){
+},{"_process":26,"fbjs/lib/ExecutionEnvironment":6,"fbjs/lib/camelizeStyleName":8,"fbjs/lib/containsNode":9,"fbjs/lib/emptyFunction":10,"fbjs/lib/emptyObject":11,"fbjs/lib/getActiveElement":12,"fbjs/lib/hyphenateStyleName":14,"fbjs/lib/invariant":15,"fbjs/lib/shallowEqual":18,"fbjs/lib/warning":19,"object-assign":25,"prop-types/checkPropTypes":27,"react":34}],30:[function(require,module,exports){
 /** @license React v16.3.1
  * react-dom.production.min.js
  *
@@ -22665,7 +22756,7 @@ var Gg={createPortal:Fg,findDOMNode:function(a){if(null==a)return null;if(1===a.
 D("40");return a._reactRootContainer?(X.unbatchedUpdates(function(){Eg(null,null,a,!1,function(){a._reactRootContainer=null})}),!0):!1},unstable_createPortal:function(){return Fg.apply(void 0,arguments)},unstable_batchedUpdates:X.batchedUpdates,unstable_deferredUpdates:X.deferredUpdates,flushSync:X.flushSync,unstable_flushControlled:X.flushControlled,__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED:{EventPluginHub:Qa,EventPluginRegistry:xa,EventPropagators:jb,ReactControlledComponent:Zb,ReactDOMComponentTree:Xa,
 ReactDOMEventListener:Zd},unstable_createRoot:function(a,b){return new sg(a,!0,null!=b&&!0===b.hydrate)}};X.injectIntoDevTools({findFiberByHostInstance:Ta,bundleType:0,version:"16.3.1",rendererPackageName:"react-dom"});var Hg=Object.freeze({default:Gg}),Ig=Hg&&Gg||Hg;module.exports=Ig["default"]?Ig["default"]:Ig;
 
-},{"fbjs/lib/ExecutionEnvironment":5,"fbjs/lib/containsNode":8,"fbjs/lib/emptyFunction":9,"fbjs/lib/emptyObject":10,"fbjs/lib/getActiveElement":11,"fbjs/lib/shallowEqual":17,"object-assign":24,"react":33}],30:[function(require,module,exports){
+},{"fbjs/lib/ExecutionEnvironment":6,"fbjs/lib/containsNode":9,"fbjs/lib/emptyFunction":10,"fbjs/lib/emptyObject":11,"fbjs/lib/getActiveElement":12,"fbjs/lib/shallowEqual":18,"object-assign":25,"react":34}],31:[function(require,module,exports){
 (function (process){
 'use strict';
 
@@ -22707,7 +22798,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 }).call(this,require('_process'))
-},{"./cjs/react-dom.development.js":28,"./cjs/react-dom.production.min.js":29,"_process":25}],31:[function(require,module,exports){
+},{"./cjs/react-dom.development.js":29,"./cjs/react-dom.production.min.js":30,"_process":26}],32:[function(require,module,exports){
 (function (process){
 /** @license React v16.3.1
  * react.development.js
@@ -24120,7 +24211,7 @@ module.exports = react;
 }
 
 }).call(this,require('_process'))
-},{"_process":25,"fbjs/lib/emptyFunction":9,"fbjs/lib/emptyObject":10,"fbjs/lib/invariant":14,"fbjs/lib/warning":18,"object-assign":24,"prop-types/checkPropTypes":26}],32:[function(require,module,exports){
+},{"_process":26,"fbjs/lib/emptyFunction":10,"fbjs/lib/emptyObject":11,"fbjs/lib/invariant":15,"fbjs/lib/warning":19,"object-assign":25,"prop-types/checkPropTypes":27}],33:[function(require,module,exports){
 /** @license React v16.3.1
  * react.production.min.js
  *
@@ -24144,7 +24235,7 @@ _calculateChangedBits:b,_defaultValue:a,_currentValue:a,_changedBits:0,Provider:
 c)&&!J.hasOwnProperty(c)&&(d[c]=void 0===b[c]&&void 0!==k?k[c]:b[c])}c=arguments.length-2;if(1===c)d.children=e;else if(1<c){k=Array(c);for(var l=0;l<c;l++)k[l]=arguments[l+2];d.children=k}return{$$typeof:r,type:a.type,key:g,ref:h,props:d,_owner:f}},createFactory:function(a){var b=K.bind(null,a);b.type=a;return b},isValidElement:L,version:"16.3.1",__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED:{ReactCurrentOwner:H,assign:m}},W=Object.freeze({default:V}),X=W&&V||W;
 module.exports=X["default"]?X["default"]:X;
 
-},{"fbjs/lib/emptyFunction":9,"fbjs/lib/emptyObject":10,"object-assign":24}],33:[function(require,module,exports){
+},{"fbjs/lib/emptyFunction":10,"fbjs/lib/emptyObject":11,"object-assign":25}],34:[function(require,module,exports){
 (function (process){
 'use strict';
 
@@ -24155,7 +24246,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 }).call(this,require('_process'))
-},{"./cjs/react.development.js":31,"./cjs/react.production.min.js":32,"_process":25}],34:[function(require,module,exports){
+},{"./cjs/react.development.js":32,"./cjs/react.production.min.js":33,"_process":26}],35:[function(require,module,exports){
 'use strict';
 
 const validateReSchemaErrors = require('./gen-errors')
@@ -24293,7 +24384,7 @@ module.exports = React => {
     };
 };
 
-},{"./gen-errors":38,"./get-defaults":39,"./validate-array":48}],35:[function(require,module,exports){
+},{"./gen-errors":39,"./get-defaults":40,"./validate-array":49}],36:[function(require,module,exports){
 'use strict';
 
 const reGenLiInput = require('./li-input')
@@ -24335,7 +24426,7 @@ module.exports = React => {
     };
 };
 
-},{"./li-input":42,"./validate-boolean":49}],36:[function(require,module,exports){
+},{"./li-input":43,"./validate-boolean":50}],37:[function(require,module,exports){
 'use strict';
 
 const validateReSchemaErrors = require('./gen-errors')
@@ -24448,7 +24539,7 @@ module.exports = React => {
     };
 };
 
-},{"./gen-errors":38,"./validate-enum":50}],37:[function(require,module,exports){
+},{"./gen-errors":39,"./validate-enum":51}],38:[function(require,module,exports){
 'use strict';
 
 const bb = (des, a1, a2) => (
@@ -24504,7 +24595,7 @@ module.exports = React => des => {
     return genForm;
 };
 
-},{}],38:[function(require,module,exports){
+},{}],39:[function(require,module,exports){
 'use strict';
 
 module.exports = validator => React => {
@@ -24521,7 +24612,7 @@ module.exports = validator => React => {
     };
 };
 
-},{}],39:[function(require,module,exports){
+},{}],40:[function(require,module,exports){
 'use strict';
 
 function getDefaults (schema) {
@@ -24552,7 +24643,7 @@ function getDefaults (schema) {
 
 module.exports = getDefaults;
 
-},{}],40:[function(require,module,exports){
+},{}],41:[function(require,module,exports){
 'use strict';
 
 const reGenForm = require('./form')
@@ -24580,7 +24671,7 @@ module.exports = {
     string: reGenString
 };
 
-},{"./array":34,"./boolean":35,"./enum":36,"./form":37,"./integer":41,"./null":43,"./number":44,"./object":45,"./one-of":46,"./string":47}],41:[function(require,module,exports){
+},{"./array":35,"./boolean":36,"./enum":37,"./form":38,"./integer":42,"./null":44,"./number":45,"./object":46,"./one-of":47,"./string":48}],42:[function(require,module,exports){
 'use strict';
 
 const reGenLiInput = require('./li-input')
@@ -24624,7 +24715,7 @@ module.exports = React => {
     };
 };
 
-},{"./li-input":42,"./validate-numeric":52}],42:[function(require,module,exports){
+},{"./li-input":43,"./validate-numeric":53}],43:[function(require,module,exports){
 'use strict';
 
 const genErrors = require('./gen-errors');
@@ -24708,7 +24799,7 @@ module.exports = React => {
     };
 };
 
-},{"./gen-errors":38}],43:[function(require,module,exports){
+},{"./gen-errors":39}],44:[function(require,module,exports){
 'use strict';
 
 const validateReSchemaErrors = require('./gen-errors')
@@ -24733,7 +24824,7 @@ module.exports = React => {
     };
 };
 
-},{"./gen-errors":38,"./validate-null":51}],44:[function(require,module,exports){
+},{"./gen-errors":39,"./validate-null":52}],45:[function(require,module,exports){
 'use strict';
 
 const reGenLiInput = require('./li-input')
@@ -24777,7 +24868,7 @@ module.exports = React => {
     };
 };
 
-},{"./li-input":42,"./validate-numeric":52}],45:[function(require,module,exports){
+},{"./li-input":43,"./validate-numeric":53}],46:[function(require,module,exports){
 'use strict';
 
 const validateReSchemaErrors = require('./gen-errors')
@@ -24855,7 +24946,7 @@ module.exports = React => {
     };
 };
 
-},{"./gen-errors":38,"./validate-object":53}],46:[function(require,module,exports){
+},{"./gen-errors":39,"./validate-object":54}],47:[function(require,module,exports){
 'use strict';
 
 const cloneDeep = require('lodash.clonedeep')
@@ -24960,7 +25051,7 @@ module.exports = validator => React => {
     };
 };
 
-},{"./get-defaults":39,"lodash.clonedeep":21,"lodash.mergewith":22}],47:[function(require,module,exports){
+},{"./get-defaults":40,"lodash.clonedeep":22,"lodash.mergewith":23}],48:[function(require,module,exports){
 'use strict';
 
 const reGenLiInput = require('./li-input')
@@ -25000,7 +25091,7 @@ module.exports = React => {
     };
 };
 
-},{"./li-input":42,"./validate-string":54}],48:[function(require,module,exports){
+},{"./li-input":43,"./validate-string":55}],49:[function(require,module,exports){
 'use strict';
 
 module.exports = schema => data => {
@@ -25029,7 +25120,7 @@ module.exports = schema => data => {
     return errors;
 };
 
-},{}],49:[function(require,module,exports){
+},{}],50:[function(require,module,exports){
 'use strict';
 
 module.exports = () => data => {
@@ -25039,7 +25130,7 @@ module.exports = () => data => {
     return [];
 };
 
-},{}],50:[function(require,module,exports){
+},{}],51:[function(require,module,exports){
 'use strict';
 
 module.exports = schema => data => {
@@ -25048,7 +25139,7 @@ module.exports = schema => data => {
         : [];
 };
 
-},{}],51:[function(require,module,exports){
+},{}],52:[function(require,module,exports){
 'use strict';
 
 module.exports = () => data => {
@@ -25058,7 +25149,7 @@ module.exports = () => data => {
     return [];
 };
 
-},{}],52:[function(require,module,exports){
+},{}],53:[function(require,module,exports){
 'use strict';
 
 module.exports = schema => {
@@ -25104,7 +25195,7 @@ module.exports = schema => {
     };
 };
 
-},{}],53:[function(require,module,exports){
+},{}],54:[function(require,module,exports){
 'use strict';
 
 const tv4 = require('tv4');
@@ -25119,7 +25210,7 @@ module.exports = schema => data => {
         );
 };
 
-},{"tv4":55}],54:[function(require,module,exports){
+},{"tv4":56}],55:[function(require,module,exports){
 'use strict';
 
 module.exports = schema => data => {
@@ -25153,7 +25244,7 @@ module.exports = schema => data => {
     return errors;
 };
 
-},{}],55:[function(require,module,exports){
+},{}],56:[function(require,module,exports){
 /*
 Author: Geraint Luff and others
 Year: 2013
@@ -26835,7 +26926,7 @@ tv4.tv4 = tv4;
 return tv4; // used by _header.js to globalise.
 
 }));
-},{}],56:[function(require,module,exports){
+},{}],57:[function(require,module,exports){
 'use strict';
 
 const React = require('react');
@@ -26843,12 +26934,14 @@ const ReactDOM = require('react-dom');
 const update = require('immutability-helper');
 const resch = require('resch');
 const reGenChart = require('../lib/re-gen-chart');
+const reGenLogPlot = require('../lib/re-gen-logplot');
 const testbench = require('../lib/testbench');
 
 const $ = React.createElement;
 const desc = Object.assign({}, resch);
 const genForm = resch.__form(React)(desc);
 const Chart = reGenChart(React)({});
+const LogPlot = reGenLogPlot(React)({});
 
 class App extends React.Component {
 
@@ -26880,10 +26973,12 @@ class App extends React.Component {
 
     render () {
         const config = this.state.data;
+        const res = testbench(config);
         return (
             $('span', {},
-                $(Chart, {data: testbench(config)}),
-                $(this.Form, {data: config})
+                $(this.Form, {data: config}),
+                $(Chart, {data: res.contours}),
+                $(LogPlot, {data: res.evms})
             )
         );
     }
@@ -26901,4 +26996,4 @@ ReactDOM.render(
 
 /* eslint-env browser */
 
-},{"../lib/re-gen-chart":2,"../lib/testbench":3,"immutability-helper":19,"react":33,"react-dom":30,"resch":40}]},{},[56]);
+},{"../lib/re-gen-chart":2,"../lib/re-gen-logplot":3,"../lib/testbench":4,"immutability-helper":20,"react":34,"react-dom":31,"resch":41}]},{},[57]);
