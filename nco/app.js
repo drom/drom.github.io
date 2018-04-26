@@ -3,9 +3,32 @@
 
 const range = require('lodash.range');
 
-// fixed-point NCO model
 module.exports = function (addrWidth, dataWidth, nCordics, corrector) {
     addrWidth = addrWidth >>> 0;
+
+    const betaOffset = addrWidth + 3; // offset from the left
+
+    const cordics = range(nCordics).map(i => {
+        const shift = i + addrWidth + 2 + corrector;
+        const scale = Math.pow(2, betaOffset + 29 + corrector);
+        return {
+            sigma: Math.round(scale * Math.atan(1 / (1 << shift))),
+            shift: shift
+        };
+    });
+
+    return cordics;
+
+};
+
+},{"lodash.range":28}],2:[function(require,module,exports){
+'use strict';
+
+const range = require('lodash.range');
+
+module.exports = function (addrWidth, dataWidth, nCordics, corrector, scale) {
+    addrWidth = addrWidth >>> 0;
+    scale = scale || 1;
 
     const lutSize = Math.pow(2, addrWidth);
 
@@ -16,8 +39,12 @@ module.exports = function (addrWidth, dataWidth, nCordics, corrector) {
     const extraScale = ((1 / Math.cos(Math.PI / 8 / lutSize) - 1) * 0.5 + 1);
 
     // compensate for cordic scale
-    const cordicScale = 1 / range(nCordics)
-        .map(i => 1 / Math.cos(Math.atan(1.35 / (1 << (i + addrWidth + corrector)))))
+    const cordicScale = scale / range(nCordics)
+        .map(i => {
+            const shift = i + addrWidth + 2 + corrector;
+            const sigma = Math.atan(1 / (1 << shift));
+            return 1 / Math.cos(sigma);
+        })
         .reduce((prev, cur) => (prev * cur), 1);
 
     // SIN-COS Look-Up table
@@ -25,11 +52,30 @@ module.exports = function (addrWidth, dataWidth, nCordics, corrector) {
         .fill(0)
         .map((e, i) => Math.PI * ((i + 0.5) / lutSize / 4))
         .map(phi => ({
-            re: Math.round(dataScale * cordicScale * extraScale * Math.cos(phi)) | 0,
-            im: Math.round(dataScale * cordicScale * extraScale * Math.sin(phi)) | 0
+            re: (dataScale * cordicScale * extraScale * Math.cos(phi)) | 0,
+            im: (dataScale * cordicScale * extraScale * Math.sin(phi)) | 0
         }));
+    return lut;
+};
 
-    console.log(lut);
+},{"lodash.range":28}],3:[function(require,module,exports){
+'use strict';
+
+const lutGen = require('./lut');
+const cordicGen = require('./cordic');
+
+// fixed-point NCO model
+module.exports = function (addrWidth, dataWidth, nCordics, corrector, scale) {
+    addrWidth = addrWidth >>> 0;
+    scale = scale || 1;
+
+    // float to fixed point
+    const dataScale = (1 << dataWidth);
+
+    const lut = lutGen(addrWidth, dataWidth, nCordics, corrector, scale);
+
+    console.log(lut.map(e => e.re.toString(16) + ' +j ' + e.im.toString(16)).join('\n'));
+
     // const betaRange = 2 * Math.PI / 8 / lutSize;
     // const startShift = -Math.log2(Math.tan(betaRange));
     // console.log('beta=' + betaRange, 'tan=' + startShift);
@@ -45,14 +91,9 @@ module.exports = function (addrWidth, dataWidth, nCordics, corrector) {
 
     // console.log(betaOffset);
 
-    const cordics = range(nCordics).map(i => ({
-        // sigma: Math.atan(1 / (1 << (i + addrWidth))),
-        // sigma: (Math.atan(1 / (1 << (i + addrWidth + 2))) * 32 * (1 << (33 - addrWidth)) << betaOffset) >>>0,
-        sigma: Math.round(Math.atan(1 / (1 << (i + addrWidth + corrector))) * Math.pow(2, betaOffset + 27 + corrector)),
-        shift: i + addrWidth + corrector
-    }));
+    const cordics = cordicGen(addrWidth, dataWidth, nCordics, corrector);
 
-    console.log(cordics);
+    console.log(cordics.map(e => 's:' + e.sigma.toString(16) + ' >>:' + e.shift).join('\n'));
 
     return function (angle) {
         angle = angle >>> 0;
@@ -68,42 +109,39 @@ module.exports = function (addrWidth, dataWidth, nCordics, corrector) {
             val = {re: val.im, im: val.re};
         }
         if ((((phase >> 2) & 1) ^ ((phase >> 1) & 1))) {
-            val.re = -val.re;
+            val.re = val.re ^ 0xffffffff;
         }
         if (((phase >> 2) & 1)) {
-            val.im = -val.im;
+            val.im = val.im ^ 0xffffffff;
         }
 
         // beta<> , val<I,Q>
 
+        /*
+                ^ 0x8000        ^ 0x7fff
+    0   000     100     -4      011     3
+    1   001     101     -3      010     2
+    2   010     110     -2      001     1
+    3   011     111     -1      000     0
+    4   100     000     0       111     -1
+    5   101     001     1       110     -2
+    6   110     010     2       101     -3
+    7   111     011     3       100     -4
+        */
 
-        // let beta = ((angle & betaMask) << betaOffset) ^ 0x7fffffff;
-        // cordics.map(p => {
-        //     if (beta > 0) {
-        //         beta = beta - p.sigma;
-        //         const re = val.re + (val.im >> p.shift);
-        //         val.im   = val.im - (val.re >> p.shift);
-        //         val.re   = re;
-        //     } else {
-        //         beta = beta + p.sigma;
-        //         const re = val.re - (val.im >> p.shift);
-        //         val.im   = val.im + (val.re >> p.shift);
-        //         val.re   = re;
-        //     }
-        //     // console.log(beta, p.sigma, val.re, val.im);
-        // });
 
-        let beta = ((angle & betaMask) << betaOffset) ^ 0x80000000;
+        let beta = (((angle & betaMask) << betaOffset) ^ 0x7fffffff);
+
         cordics.map(p => {
             if (beta > 0) {
                 beta = beta - p.sigma;
-                const re = val.re - (val.im >> p.shift);
-                val.im   = val.im + (val.re >> p.shift);
+                const re = val.re + (val.im >> p.shift);
+                val.im   = val.im - (val.re >> p.shift);
                 val.re   = re;
             } else {
                 beta = beta + p.sigma;
-                const re = val.re + (val.im >> p.shift);
-                val.im   = val.im - (val.re >> p.shift);
+                const re = val.re - (val.im >> p.shift);
+                val.im   = val.im + (val.re >> p.shift);
                 val.re   = re;
             }
         });
@@ -116,7 +154,83 @@ module.exports = function (addrWidth, dataWidth, nCordics, corrector) {
     };
 };
 
-},{"lodash.range":24}],2:[function(require,module,exports){
+},{"./cordic":1,"./lut":2}],4:[function(require,module,exports){
+'use strict';
+
+const reqack = require('reqack');
+const range = require('lodash.range');
+const lutGen = require('./lut');
+const cordicGen = require('./cordic');
+
+module.exports = config => {
+
+    const dataWidth = config.dataWidth;
+    const addrWidth = config.addrWidth;
+    const nCordics = config.nCordics;
+
+    const lut = lutGen(addrWidth, dataWidth, nCordics, 2);
+    const cordics = cordicGen(addrWidth, dataWidth, nCordics, 2);
+
+    const macros = {
+        'nco_lut': {
+            data: p => {
+                const pre = 'node' + p.id + '_';
+                return `
+// Look-Up stage
+/*
+${JSON.stringify(lut, null, 4)}
+*/
+
+wire [2:0] ${pre}a0;
+wire [${addrWidth - 1}:0] ${pre}a1;
+wire ${pre}re_sig, ${pre}im_sig, ${pre}sel;
+assign {a0, a1} = phase;
+
+assign ${pre}addr = ${pre}a0[0] ? (0 - ${pre}a1) : ${pre}a1;
+assign ${pre}re_sig = ^${pre}a0[2:1];
+assign ${pre}im_sig = ${pre}a0[2];
+assign ${pre}sel = ^${pre}a0[1:0];
+`;
+            }
+        },
+        'nco_cordic': {
+            data: p => {
+                const idx = p.id - 2;
+                return `
+// CORDIC stage ${idx}
+/*
+${JSON.stringify(cordics[idx], null, 4)}
+*/
+
+`;
+            }
+        }
+    };
+
+    const g = reqack.circuit();
+
+    const tNode = g();
+    const lutNode = g('nco_lut');
+
+    tNode({width: dataWidth, capacity: 1})(lutNode);
+
+    const n2 = range(nCordics).reduce((prev) => {
+        const n = g('nco_cordic');
+        prev({width: dataWidth, capacity: 1})(n);
+        return n;
+    }, lutNode);
+
+    n2({width: dataWidth, capacity: 1})(g());
+
+    const verilog = '// ' + JSON.stringify(config) + '\n' + reqack.verilog(g, macros);
+
+    // console.log(verilog);
+
+    return verilog;
+
+};
+
+},{"./cordic":1,"./lut":2,"lodash.range":28,"reqack":47}],5:[function(require,module,exports){
 'use strict';
 
 const range = require('lodash.range');
@@ -187,7 +301,7 @@ module.exports = React => {
     };
 };
 
-},{"lodash.range":24}],3:[function(require,module,exports){
+},{"lodash.range":28}],6:[function(require,module,exports){
 'use strict';
 
 const range = require('lodash.range');
@@ -237,13 +351,13 @@ module.exports = React => {
                         fill: 'none',
                         stroke: '#000',
                         d: 'M' + props.data.map((val, idx) =>
-                            (idx * 32 + 32) + ' ' + (-val * 32)
+                            (idx * 32 + 32) + ' ' + (-val * 16)
                         ).join('L')
                     }),
                     props.data.map((val, idx) =>
                         $('circle', {
                             cx: (idx * 32 + 32),
-                            cy: (-val * 32),
+                            cy: (-val * 16),
                             r: 4,
                             fill: hsl(idx)
                         })
@@ -254,7 +368,66 @@ module.exports = React => {
     };
 };
 
-},{"lodash.range":24}],4:[function(require,module,exports){
+},{"lodash.range":28}],7:[function(require,module,exports){
+'use strict';
+
+const ncoVerilog = require('./nco-verilog');
+
+function fakeClick(obj) {
+    let ev = document.createEvent('MouseEvents');
+    ev.initMouseEvent(
+        'click',
+        true,
+        false,
+        window,
+        0,
+        0,
+        0,
+        0,
+        0,
+        false,
+        false,
+        false,
+        false,
+        0,
+        null
+    );
+    obj.dispatchEvent(ev);
+}
+
+function setupDownload (name, data) {
+    let urlObject = window.URL || window.webkitURL || window;
+    let exportBlob = new Blob([data]);
+    let saveLink = document.createElementNS(
+        'http://www.w3.org/1999/xhtml',
+        'a'
+    );
+    saveLink.href = urlObject.createObjectURL(exportBlob);
+    saveLink.download = name;
+
+    return function (e) {
+        fakeClick(saveLink);
+        e.preventDefault();
+    };
+}
+
+module.exports = React => {
+    const $ = React.createElement;
+    return () => {
+        return config => {
+            const butLabel = 'Get Verilog';
+            return $('div', {},
+                $('button', {
+                    onClick: setupDownload('nco.v', ncoVerilog(config))
+                }, butLabel)
+            );
+        };
+    };
+};
+
+/* eslint-env browser */
+
+},{"./nco-verilog":4}],8:[function(require,module,exports){
 'use strict';
 
 const range = require('lodash.range');
@@ -306,12 +479,12 @@ module.exports = config => {
     const dataWidth = config.dataWidth;
 
     const designs = range(addrWidth).map(i => ({
-        addrWidth: i + 1,
+        addrWidth: i,
         nCordics: 0
     }))
-        .concat(range(config.nCordics).map(i => ({
+        .concat(range(config.nCordics + 1).map(i => ({
             addrWidth: addrWidth,
-            nCordics: i + 1
+            nCordics: i
         })));
 
     // console.log(designs);
@@ -320,7 +493,13 @@ module.exports = config => {
     let evms = [];
 
     designs.map((design) => {
-        const model = genModel(design.addrWidth, dataWidth, design.nCordics, config.corrector);
+        const model = genModel(
+            design.addrWidth,
+            dataWidth,
+            design.nCordics,
+            config.corrector,
+            config.scale
+        );
         const errors = Array(5000).fill(0).map(() => {
             const phase = randomPhase();
             // const phase = (i << (32 - 3 - 2) >>> 0);
@@ -339,7 +518,7 @@ module.exports = config => {
     };
 };
 
-},{"./model":1,"d3-polygon":5,"lodash.range":24}],5:[function(require,module,exports){
+},{"./model":3,"d3-polygon":9,"lodash.range":28}],9:[function(require,module,exports){
 // https://d3js.org/d3-polygon/ Version 1.0.3. Copyright 2017 Mike Bostock.
 (function (global, factory) {
 	typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
@@ -491,7 +670,7 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 })));
 
-},{}],6:[function(require,module,exports){
+},{}],10:[function(require,module,exports){
 /**
  * Copyright (c) 2013-present, Facebook, Inc.
  *
@@ -525,7 +704,7 @@ var ExecutionEnvironment = {
 };
 
 module.exports = ExecutionEnvironment;
-},{}],7:[function(require,module,exports){
+},{}],11:[function(require,module,exports){
 "use strict";
 
 /**
@@ -555,7 +734,7 @@ function camelize(string) {
 }
 
 module.exports = camelize;
-},{}],8:[function(require,module,exports){
+},{}],12:[function(require,module,exports){
 /**
  * Copyright (c) 2013-present, Facebook, Inc.
  *
@@ -593,7 +772,7 @@ function camelizeStyleName(string) {
 }
 
 module.exports = camelizeStyleName;
-},{"./camelize":7}],9:[function(require,module,exports){
+},{"./camelize":11}],13:[function(require,module,exports){
 'use strict';
 
 /**
@@ -631,7 +810,7 @@ function containsNode(outerNode, innerNode) {
 }
 
 module.exports = containsNode;
-},{"./isTextNode":17}],10:[function(require,module,exports){
+},{"./isTextNode":21}],14:[function(require,module,exports){
 "use strict";
 
 /**
@@ -668,7 +847,7 @@ emptyFunction.thatReturnsArgument = function (arg) {
 };
 
 module.exports = emptyFunction;
-},{}],11:[function(require,module,exports){
+},{}],15:[function(require,module,exports){
 (function (process){
 /**
  * Copyright (c) 2013-present, Facebook, Inc.
@@ -688,7 +867,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 module.exports = emptyObject;
 }).call(this,require('_process'))
-},{"_process":26}],12:[function(require,module,exports){
+},{"_process":30}],16:[function(require,module,exports){
 'use strict';
 
 /**
@@ -725,7 +904,7 @@ function getActiveElement(doc) /*?DOMElement*/{
 }
 
 module.exports = getActiveElement;
-},{}],13:[function(require,module,exports){
+},{}],17:[function(require,module,exports){
 'use strict';
 
 /**
@@ -756,7 +935,7 @@ function hyphenate(string) {
 }
 
 module.exports = hyphenate;
-},{}],14:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 /**
  * Copyright (c) 2013-present, Facebook, Inc.
  *
@@ -793,7 +972,7 @@ function hyphenateStyleName(string) {
 }
 
 module.exports = hyphenateStyleName;
-},{"./hyphenate":13}],15:[function(require,module,exports){
+},{"./hyphenate":17}],19:[function(require,module,exports){
 (function (process){
 /**
  * Copyright (c) 2013-present, Facebook, Inc.
@@ -849,7 +1028,7 @@ function invariant(condition, format, a, b, c, d, e, f) {
 
 module.exports = invariant;
 }).call(this,require('_process'))
-},{"_process":26}],16:[function(require,module,exports){
+},{"_process":30}],20:[function(require,module,exports){
 'use strict';
 
 /**
@@ -872,7 +1051,7 @@ function isNode(object) {
 }
 
 module.exports = isNode;
-},{}],17:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 'use strict';
 
 /**
@@ -895,7 +1074,7 @@ function isTextNode(object) {
 }
 
 module.exports = isTextNode;
-},{"./isNode":16}],18:[function(require,module,exports){
+},{"./isNode":20}],22:[function(require,module,exports){
 /**
  * Copyright (c) 2013-present, Facebook, Inc.
  *
@@ -961,7 +1140,7 @@ function shallowEqual(objA, objB) {
 }
 
 module.exports = shallowEqual;
-},{}],19:[function(require,module,exports){
+},{}],23:[function(require,module,exports){
 (function (process){
 /**
  * Copyright (c) 2014-present, Facebook, Inc.
@@ -1026,7 +1205,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 module.exports = warning;
 }).call(this,require('_process'))
-},{"./emptyFunction":10,"_process":26}],20:[function(require,module,exports){
+},{"./emptyFunction":14,"_process":30}],24:[function(require,module,exports){
 var invariant = require('invariant');
 
 var hasOwnProperty = Object.prototype.hasOwnProperty;
@@ -1290,7 +1469,7 @@ function invariantMapOrSet(target, command) {
   );
 }
 
-},{"invariant":21}],21:[function(require,module,exports){
+},{"invariant":25}],25:[function(require,module,exports){
 (function (process){
 /**
  * Copyright (c) 2013-present, Facebook, Inc.
@@ -1343,7 +1522,7 @@ var invariant = function(condition, format, a, b, c, d, e, f) {
 module.exports = invariant;
 
 }).call(this,require('_process'))
-},{"_process":26}],22:[function(require,module,exports){
+},{"_process":30}],26:[function(require,module,exports){
 (function (global){
 /**
  * lodash (Custom Build) <https://lodash.com/>
@@ -3095,7 +3274,7 @@ function stubFalse() {
 module.exports = cloneDeep;
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],23:[function(require,module,exports){
+},{}],27:[function(require,module,exports){
 (function (global){
 /**
  * Lodash (Custom Build) <https://lodash.com/>
@@ -5062,7 +5241,7 @@ function stubFalse() {
 module.exports = mergeWith;
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],24:[function(require,module,exports){
+},{}],28:[function(require,module,exports){
 /**
  * lodash (Custom Build) <https://lodash.com/>
  * Build: `lodash modularize exports="npm" -o ./`
@@ -5526,7 +5705,7 @@ var range = createRange();
 
 module.exports = range;
 
-},{}],25:[function(require,module,exports){
+},{}],29:[function(require,module,exports){
 /*
 object-assign
 (c) Sindre Sorhus
@@ -5618,7 +5797,7 @@ module.exports = shouldUseNative() ? Object.assign : function (target, source) {
 	return to;
 };
 
-},{}],26:[function(require,module,exports){
+},{}],30:[function(require,module,exports){
 // shim for using process in browser
 var process = module.exports = {};
 
@@ -5804,7 +5983,7 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],27:[function(require,module,exports){
+},{}],31:[function(require,module,exports){
 (function (process){
 /**
  * Copyright (c) 2013-present, Facebook, Inc.
@@ -5867,7 +6046,7 @@ function checkPropTypes(typeSpecs, values, location, componentName, getStack) {
 module.exports = checkPropTypes;
 
 }).call(this,require('_process'))
-},{"./lib/ReactPropTypesSecret":28,"_process":26,"fbjs/lib/invariant":15,"fbjs/lib/warning":19}],28:[function(require,module,exports){
+},{"./lib/ReactPropTypesSecret":32,"_process":30,"fbjs/lib/invariant":19,"fbjs/lib/warning":23}],32:[function(require,module,exports){
 /**
  * Copyright (c) 2013-present, Facebook, Inc.
  *
@@ -5881,7 +6060,7 @@ var ReactPropTypesSecret = 'SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED';
 
 module.exports = ReactPropTypesSecret;
 
-},{}],29:[function(require,module,exports){
+},{}],33:[function(require,module,exports){
 (function (process){
 /** @license React v16.3.1
  * react-dom.development.js
@@ -22509,7 +22688,7 @@ module.exports = reactDom;
 }
 
 }).call(this,require('_process'))
-},{"_process":26,"fbjs/lib/ExecutionEnvironment":6,"fbjs/lib/camelizeStyleName":8,"fbjs/lib/containsNode":9,"fbjs/lib/emptyFunction":10,"fbjs/lib/emptyObject":11,"fbjs/lib/getActiveElement":12,"fbjs/lib/hyphenateStyleName":14,"fbjs/lib/invariant":15,"fbjs/lib/shallowEqual":18,"fbjs/lib/warning":19,"object-assign":25,"prop-types/checkPropTypes":27,"react":34}],30:[function(require,module,exports){
+},{"_process":30,"fbjs/lib/ExecutionEnvironment":10,"fbjs/lib/camelizeStyleName":12,"fbjs/lib/containsNode":13,"fbjs/lib/emptyFunction":14,"fbjs/lib/emptyObject":15,"fbjs/lib/getActiveElement":16,"fbjs/lib/hyphenateStyleName":18,"fbjs/lib/invariant":19,"fbjs/lib/shallowEqual":22,"fbjs/lib/warning":23,"object-assign":29,"prop-types/checkPropTypes":31,"react":38}],34:[function(require,module,exports){
 /** @license React v16.3.1
  * react-dom.production.min.js
  *
@@ -22756,7 +22935,7 @@ var Gg={createPortal:Fg,findDOMNode:function(a){if(null==a)return null;if(1===a.
 D("40");return a._reactRootContainer?(X.unbatchedUpdates(function(){Eg(null,null,a,!1,function(){a._reactRootContainer=null})}),!0):!1},unstable_createPortal:function(){return Fg.apply(void 0,arguments)},unstable_batchedUpdates:X.batchedUpdates,unstable_deferredUpdates:X.deferredUpdates,flushSync:X.flushSync,unstable_flushControlled:X.flushControlled,__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED:{EventPluginHub:Qa,EventPluginRegistry:xa,EventPropagators:jb,ReactControlledComponent:Zb,ReactDOMComponentTree:Xa,
 ReactDOMEventListener:Zd},unstable_createRoot:function(a,b){return new sg(a,!0,null!=b&&!0===b.hydrate)}};X.injectIntoDevTools({findFiberByHostInstance:Ta,bundleType:0,version:"16.3.1",rendererPackageName:"react-dom"});var Hg=Object.freeze({default:Gg}),Ig=Hg&&Gg||Hg;module.exports=Ig["default"]?Ig["default"]:Ig;
 
-},{"fbjs/lib/ExecutionEnvironment":6,"fbjs/lib/containsNode":9,"fbjs/lib/emptyFunction":10,"fbjs/lib/emptyObject":11,"fbjs/lib/getActiveElement":12,"fbjs/lib/shallowEqual":18,"object-assign":25,"react":34}],31:[function(require,module,exports){
+},{"fbjs/lib/ExecutionEnvironment":10,"fbjs/lib/containsNode":13,"fbjs/lib/emptyFunction":14,"fbjs/lib/emptyObject":15,"fbjs/lib/getActiveElement":16,"fbjs/lib/shallowEqual":22,"object-assign":29,"react":38}],35:[function(require,module,exports){
 (function (process){
 'use strict';
 
@@ -22798,7 +22977,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 }).call(this,require('_process'))
-},{"./cjs/react-dom.development.js":29,"./cjs/react-dom.production.min.js":30,"_process":26}],32:[function(require,module,exports){
+},{"./cjs/react-dom.development.js":33,"./cjs/react-dom.production.min.js":34,"_process":30}],36:[function(require,module,exports){
 (function (process){
 /** @license React v16.3.1
  * react.development.js
@@ -24211,7 +24390,7 @@ module.exports = react;
 }
 
 }).call(this,require('_process'))
-},{"_process":26,"fbjs/lib/emptyFunction":10,"fbjs/lib/emptyObject":11,"fbjs/lib/invariant":15,"fbjs/lib/warning":19,"object-assign":25,"prop-types/checkPropTypes":27}],33:[function(require,module,exports){
+},{"_process":30,"fbjs/lib/emptyFunction":14,"fbjs/lib/emptyObject":15,"fbjs/lib/invariant":19,"fbjs/lib/warning":23,"object-assign":29,"prop-types/checkPropTypes":31}],37:[function(require,module,exports){
 /** @license React v16.3.1
  * react.production.min.js
  *
@@ -24235,7 +24414,7 @@ _calculateChangedBits:b,_defaultValue:a,_currentValue:a,_changedBits:0,Provider:
 c)&&!J.hasOwnProperty(c)&&(d[c]=void 0===b[c]&&void 0!==k?k[c]:b[c])}c=arguments.length-2;if(1===c)d.children=e;else if(1<c){k=Array(c);for(var l=0;l<c;l++)k[l]=arguments[l+2];d.children=k}return{$$typeof:r,type:a.type,key:g,ref:h,props:d,_owner:f}},createFactory:function(a){var b=K.bind(null,a);b.type=a;return b},isValidElement:L,version:"16.3.1",__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED:{ReactCurrentOwner:H,assign:m}},W=Object.freeze({default:V}),X=W&&V||W;
 module.exports=X["default"]?X["default"]:X;
 
-},{"fbjs/lib/emptyFunction":10,"fbjs/lib/emptyObject":11,"object-assign":25}],34:[function(require,module,exports){
+},{"fbjs/lib/emptyFunction":14,"fbjs/lib/emptyObject":15,"object-assign":29}],38:[function(require,module,exports){
 (function (process){
 'use strict';
 
@@ -24246,7 +24425,1222 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 }).call(this,require('_process'))
-},{"./cjs/react.development.js":32,"./cjs/react.production.min.js":33,"_process":26}],35:[function(require,module,exports){
+},{"./cjs/react.development.js":36,"./cjs/react.production.min.js":37,"_process":30}],39:[function(require,module,exports){
+'use strict';
+
+const data = p => `
+// edge:${p.id} EB1.5
+wire en${p.id}_0, en${p.id}_1, sel${p.id};
+reg [${p.width - 1}:0] dat${p.id}_r0, dat${p.id}_r1;
+always @(posedge clk) if (en${p.id}_0) dat${p.id}_r0 <= ${p.t.data};
+always @(posedge clk) if (en${p.id}_1) dat${p.id}_r1 <= ${p.t.data};
+
+assign ${p.i.data} = sel${p.id} ? dat${p.id}_r1 : dat${p.id}_r0;
+`;
+
+const ctrl = p => `
+// edge:${p.id} EB1.5
+wire ${p.i.ready}, ${p.i.valid};
+eb15_ctrl uctrl_${p.id} (
+    .t_0_req(${p.t.valid}), .t_0_ack(${p.t.ready}),
+    .i_0_req(${p.i.valid}), .i_0_ack(${p.i.ready}),
+    .en0(en${p.id}_0), .en1(en${p.id}_1), .sel(sel${p.id}),
+    .clk(clk), .reset_n(reset_n)
+);
+`;
+
+module.exports = {
+    ctrl: ctrl,
+    data: data,
+    ctrl2data: p => {
+        let res = {};
+        res[`en${p.id}_0`] = 1;
+        res[`en${p.id}_1`] = 1;
+        res[`sel${p.id}`]  = 1;
+        return res;
+    }
+};
+
+},{}],40:[function(require,module,exports){
+'use strict';
+
+const data = p => `
+// edge:${p.id} EB1.7
+wire en${p.id}_0, en${p.id}_1, sel${p.id};
+reg [${p.width - 1}:0] dat${p.id}_r0, dat${p.id}_r1;
+wire [${p.width - 1}:0] dat${p.id}_r0_nxt;
+assign dat${p.id}_r0_nxt = sel${p.id} ? dat${p.id}_r1 : ${p.t.data};
+
+always @(posedge clk) if (en${p.id}_0) dat${p.id}_r0 <= dat${p.id}_r0_nxt;
+always @(posedge clk) if (en${p.id}_1) dat${p.id}_r1 <= ${p.t.data};
+
+assign dat${p.id} = dat${p.id}_r0;
+`;
+
+const ctrl = p => `
+// edge:${p.id} EB1.7
+wire ${p.i.ready}, ${p.i.valid};
+eb17_ctrl uctrl_${p.id} (
+    .t_0_req(${p.t.valid}), .t_0_ack(${p.t.ready}),
+    .i_0_req(${p.i.valid}), .i_0_ack(${p.i.ready}),
+    .en0(en${p.id}_0), .en1(en${p.id}_1), .sel(sel${p.id}),
+    .clk(clk), .reset_n(reset_n)
+);
+`;
+
+module.exports = {
+    ctrl: ctrl,
+    data: data,
+    ctrl2data: p => {
+        let res = {};
+        res[`en${p.id}_0`] = 1;
+        res[`en${p.id}_1`] = 1;
+        res[`sel${p.id}`]  = 1;
+        return res;
+    }
+};
+
+},{}],41:[function(require,module,exports){
+'use strict';
+
+const data = p => {
+    const depthlog2 = Math.ceil(Math.log2(p.capacity));
+    return `
+// edge:${p.id} EB_FIFO Depth=${p.capacity}
+reg [${p.width - 1}:0] mem${p.id} [${p.capacity - 1}:0];
+reg [${p.width - 1}:0] dat${p.id}_r0;
+wire ren${p.id}, wen${p.id};
+wire [${depthlog2 - 1}:0] wr_ptr${p.id}, rd_ptr${p.id};
+
+always @(posedge clk) if (ren${p.id}) dat${p.id}_r0 <= mem${p.id}[rd_ptr${p.id}];
+always @(posedge clk) if (wen${p.id}) mem${p.id}[wr_ptr${p.id}] <= ${p.t.data};
+
+assign ${p.i.data} = dat${p.id}_r0;
+`;
+};
+
+const ctrl = p => {
+    const depthlog2 = Math.ceil(Math.log2(p.capacity));
+    return `
+// edge:${p.id} EB_FIFO
+wire ${p.i.ready}, ${p.i.valid};
+eb_fifo_ctrl #(
+    .DEPTHMO(${depthlog2}'d${p.capacity - 1}),
+    .DEPTHLOG2MO(${depthlog2 - 1})
+) uctrl_${p.id} (
+    .t_0_req(${p.t.valid}), .t_0_ack(${p.t.ready}),
+    .i_0_req(${p.i.valid}), .i_0_ack(${p.i.ready}),
+    .wr_ptr(wr_ptr${p.id}),
+    .rd_ptr(rd_ptr${p.id}),
+    .wen(wen${p.id}),
+    .ren(ren${p.id}),
+    .clk(clk), .reset_n(reset_n)
+);
+`;
+};
+
+module.exports = {
+    ctrl: ctrl,
+    data: data,
+    ctrl2data: p => {
+        const ptrWidth = Math.ceil(Math.log2(p.capacity));
+        let res = {};
+        res[`wr_ptr${p.id}`] = ptrWidth;
+        res[`rd_ptr${p.id}`] = ptrWidth;
+        res[`wen${p.id}`] = 1;
+        res[`ren${p.id}`] = 1;
+        return res;
+    }
+};
+
+},{}],42:[function(require,module,exports){
+'use strict';
+
+function nId (i) { return 'n' + i.toString(); }
+function eId (i) { return 'e' + i.toString(); }
+
+function edgeWidth (e) {
+    if (e.label) {
+        switch (typeof e.label) {
+        case 'number':
+            return e.label;
+        case 'object':
+            if (typeof e.label.width === 'number') {
+                return e.label.width;
+            }
+        }
+    }
+}
+
+module.exports = function (g) {
+    var res = [
+        'digraph g {',
+        'graph [fontname=helvetica margin=0.02 width=0 height=0];',
+        'node [fontname=helvetica margin=0.04 width=0 height=0];',
+        'edge [fontname=helvetica margin=0.02 width=0 height=0];'
+    ];
+
+    var nodes = {};
+    var edges = {};
+
+    res = res.concat(g.nodes.map(function (n, i) {
+        var key = nId(i);
+        nodes[key] = n;
+        var l = n.label;
+        return key + ((l === undefined) ? '' : ' [label="' + l + '"];');
+    }));
+    var nodeKeys = Object.keys(nodes);
+
+    res = res.concat(g.edges.map(function (e, i) {
+        var key = eId(i);
+        edges[key] = e;
+        var w = edgeWidth(e);
+
+        var shape = 'none';
+        if (e.label.capacity === 1) {
+            shape = 'box';
+        } else if (e.label.capacity > 1) {
+            shape = 'box3d';
+        }
+
+        var label = w || '';
+        label += (e.label.capacity > 1) ? (',C:' + e.label.capacity) : '';
+        label = (label === '') ? '' : '; label="' + label + '"';
+
+        return key + ' [shape=' + shape + label + '];';
+    }));
+    var edgeKeys = Object.keys(edges);
+
+    res = res.concat(g.nodes.map(function (n, i) {
+        var nKey = nId(i);
+        var res = [];
+        n.to.forEach(function (e, ni) {
+            edgeKeys.some(function (eKey) {
+                if (edges[eKey] === e) {
+                    const label = 'label="' + ni + '"';
+                    const taillabel = e.taillabel ? ' taillabel="' + e.taillabel + '"' : '';
+                    res.push(nKey + ' -> ' + eKey + '       [' + label + taillabel + '];');
+                    e.targets.forEach(function (nn) {
+                        nodeKeys.some(function (nnKey) {
+                            if (nodes[nnKey] === nn.node) {
+                                const label1 = 'label="' + nn.index + '"';
+                                const headlabel = nn.headlabel ? ' headlabel="' + nn.headlabel + '"' : '';
+                                res.push('      ' + eKey + ' -> ' + nnKey + ' [' + label1 + headlabel + '];');
+                                return true;
+                            }
+                        });
+                    });
+                    return true;
+                }
+            });
+        });
+        return res.join('\n');
+    }));
+
+    res.push('}');
+    return res.join('\n');
+};
+
+/* eslint no-console: 1 */
+
+},{}],43:[function(require,module,exports){
+'use strict';
+
+function gLabel (g) {
+    return g.label || 'g';
+}
+
+const descriptor = (ni, preffix, root, width) => ({
+    data: preffix + root + '_dat',
+    valid: preffix + root + '_req',
+    ready: preffix + root + '_ack',
+    width: width,
+    length: 16
+});
+
+module.exports = function (g, name) {
+    const targets = g.nodes.reduce((res, n, ni) => {
+        const root = n.label || ni;
+        return res.concat((n.from.length === 0) ? [
+            descriptor(ni, 't_', root, n.to[0].label.width)
+        ] : []);
+    }, []);
+    const initiators = g.nodes.reduce((res, n, ni) => {
+        const root = n.label || ni;
+        return res.concat((n.to.length === 0) ? [
+            descriptor(ni, 'i_', root, n.from[0].label.width)
+        ] : []);
+    }, []);
+    const obj = {
+        top: gLabel(g),
+        topFile: name + '.v',
+        clk: 'clk',
+        'reset_n': 'reset_n',
+        targets: targets,
+        initiators: initiators
+    };
+    return 'module.exports = ' + JSON.stringify(obj, null, 4) + ';';
+};
+
+},{}],44:[function(require,module,exports){
+'use strict';
+
+const operators = require('./operators');
+const macroVerilog = require('./macro-verilog');
+
+const indent = '    ';
+
+// const enPrefix  = id => 'en' + id;
+
+const datPrefix = id => 'dat' + id;
+const reqPrefix = id => 'req' + id;
+const ackPrefix = id => 'ack' + id;
+
+const datSuffix = id => id + '_dat';
+const reqSuffix = id => id + '_req';
+const ackSuffix = id => id + '_ack';
+
+const assign = (lhs, rhs) => ['assign ' + lhs + ' = ' + rhs + ';'];
+
+const instantiation = (p) => {
+    const head = p.modName + ' ' + p.instName + ' (\n';
+    const body = p.bindings.map(bind =>
+        indent + '.' + bind[0] + '(' + bind[1] + ')'
+    ).join(',\n');
+    const foot = ');\n';
+    return head + body + foot;
+};
+
+function edgeIndex (g, edge) {
+    let index;
+    g.edges.some((e, i) => {
+        if (edge === e) {
+            index = i;
+            return true;
+        }
+    });
+    return index;
+}
+
+function gLabel (g) {
+    return g.label || 'g';
+}
+
+function vectorDim (size) {
+    const body = (Math.abs(size) > 1) ? '[' + (Math.abs(size) - 1) + ':0]' : '';
+    return ((' ').repeat(20) + body + ' ').slice(-12);
+}
+
+function vport (desc) {
+    return Object.keys(desc).map((key, i, arr) => {
+        const val = desc[key];
+        const type = (val < 0) ? 'output ' : 'input  ';
+        const comma = (i === (arr.length - 1)) ? '' : ',';
+        return indent + type + vectorDim(val) + key + comma;
+    });
+}
+
+function vlogic (desc) {
+    return Object.keys(desc).map(key => {
+        const val = desc[key];
+        const type = 'wire ';
+        return type + vectorDim(val) + key + ';';
+    });
+}
+
+function edgeWidth (e) {
+    if (e.label) {
+        switch (typeof e.label) {
+        case 'number':
+            return e.label;
+        case 'object':
+            if (typeof e.label.width === 'number') {
+                return e.label.width;
+            }
+        }
+    }
+}
+
+function pbind (desc) {
+    return Object.keys(desc).map(function (key, i, arr) {
+        const comma = (i === (arr.length - 1)) ? '' : ',';
+        const val = (typeof desc[key] === 'number') ? key : desc[key];
+        return '    .' + key + '(' + val + ')' + comma;
+    });
+}
+
+const ioReducer = (g, ocb) =>
+    g.nodes.reduce((res, n, ni) => {
+        const nname = n.label || ni;
+        if (n.from.length === 0) { // target node
+            const ewidth = edgeWidth(n.to[0]);
+            return ocb.target(res, nname, ewidth);
+        }
+        if (n.to.length === 0) { // initiator node
+            const ewidth = edgeWidth(n.from[0]);
+            return ocb.initiator(res, nname, ewidth);
+        }
+        return res;
+    }, {clk: 1, 'reset_n': 1});
+
+const ctrlInstance = (g, macros) => {
+    const glabel = gLabel(g);
+
+    const io = ioReducer(g, {
+        target: (res, nname) => {
+            res[reqSuffix('t_' + nname)] = 1;
+            res[ackSuffix('t_' + nname)] = 1;
+            return res;
+        },
+        initiator: (res, nname) => {
+            res[reqSuffix('i_' + nname)] = 1;
+            res[ackSuffix('i_' + nname)] = 1;
+            return res;
+        }
+    });
+
+    g.edges.reduce((eres, e, ei) =>
+        Object.assign(
+            eres,
+            macroVerilog.eb.ctrl2data({
+                capacity: e.label.capacity,
+                id: ei
+            })
+        ), io);
+
+    g.nodes.reduce((nres, n, ni) => {
+        const label = n.label;
+        if (label && macros[label] && macros[label].ctrl2data) {
+            const ctrl2data = macros[label].ctrl2data({id: ni});
+            ctrl2data.map(sig => {
+                nres[sig[1]] = sig[1];
+            });
+        }
+        return nres;
+    }, io);
+
+    return [glabel + '_ctrl uctrl (']
+        .concat(pbind(io))
+        .concat([');']);
+};
+
+
+function dport (g) {
+    return vport(ioReducer(g, {
+        target: (res, nname, ewidth) => {
+            res[datSuffix('t_' + nname)] = ewidth;
+            res[reqSuffix('t_' + nname)] = 1;
+            res[ackSuffix('t_' + nname)] = -1;
+            return res;
+        },
+        initiator: (res, nname, ewidth) => {
+            res[datSuffix('i_' + nname)] = -ewidth;
+            res[reqSuffix('i_' + nname)] = -1;
+            res[ackSuffix('i_' + nname)] = 1;
+            return res;
+        }
+    }));
+}
+
+
+const cForks = g =>
+    g.edges.reduce((res, e, ei) => (
+        res
+            .concat(macroVerilog.eb.ctrl({
+                id: ei,
+                capacity: e.label.capacity,
+                t: {
+                    valid: 'req' + ei,
+                    ready: 'ack' + ei
+                },
+                i: {
+                    valid: 'req' + ei + 'm',
+                    ready: 'ack' + ei + 'm'
+                }
+            }))
+            .concat(macroVerilog.fork.ctrl({id: ei, targets: e.targets}))
+    ), []);
+
+const cTargets = g =>
+    g.nodes.reduce((res, n, ni) => {
+        const nname = 't_' + (n.label || ni);
+        return res.concat((n.from.length === 0) ? (
+            ['// node:' + nname + ' target']
+                .concat(n.to.reduce((eres, e) => {
+                    const idx = findGlobalIndexOfEdge(g, e);
+                    return eres
+                        .concat(assign(reqPrefix(idx), reqSuffix(nname)))
+                        .concat(assign(ackSuffix(nname), ackPrefix(idx)));
+                }, []))
+        ) : []);
+    }, []);
+
+const cInitiators = g =>
+    g.nodes.reduce((res, n, ni) => {
+        const nname = 'i_' + (n.label || ni);
+        return res.concat((n.to.length === 0) ? (
+            ['// node:' + ni + ' initiator']
+                .concat(n.from.reduce((eres, efrom) => {
+                    const idx = findGlobalIndexOfEdge(g, efrom);
+                    const nindex = findIndexOfNode(g, efrom.targets, n);
+                    return eres
+                        .concat(assign(
+                            reqSuffix(nname), reqPrefix(idx + '_' + nindex)
+                        ))
+                        .concat(assign(
+                            ackPrefix(idx + '_' + nindex), ackSuffix(nname)
+                        ));
+                }, []))
+        ) : []);
+    }, []);
+
+function findIndexOfNode (g, nodes, node) {
+    let index;
+    nodes.some((n, ni) => {
+        if (node === n.node) {
+            index = ni;
+            return true;
+        }
+    });
+    return index;
+}
+
+// function findGlobalIndexOfNode (g, node) {
+//     let index;
+//     g.nodes.some((n, ni) => {
+//         if (node === n) {
+//             index = ni;
+//             return true;
+//         }
+//     });
+//     return index;
+// }
+
+function findGlobalIndexOfEdge (g, edge) {
+    let index;
+    g.edges.some((e, ei) => {
+        if (edge === e) {
+            index = ei;
+            return true;
+        }
+    });
+    return index;
+}
+
+const clogic = g =>
+    ['// per edge'].concat(vlogic(
+        g.edges.reduce(function (eres, e, ei) {
+            let tres = [
+                reqPrefix(ei),
+                ackPrefix(ei)
+            ];
+            e.targets.forEach((t, ti) => {
+                tres = tres.concat([
+                    ackPrefix(ei + '_' + ti),
+                    reqPrefix(ei + '_' + ti)
+                ]);
+            });
+
+            eres[tres.join(', ')] = 1;
+            return eres;
+        }, {})
+    ));
+
+const dlogic = g => ['// per edge']
+    .concat(vlogic(g.edges.reduce(function (eres, e, ei) {
+        let ename = datPrefix(ei);
+        if (e.label.capacity >= 1) {
+            eres[[
+                ename,
+                ename + '_nxt'
+            ].join(', ')] = e.label.width;
+        } else {
+            eres[ename] = e.label.width;
+        }
+        return eres;
+    }, {})));
+
+const dff = g => ['// per edge']
+    .concat(
+        g.edges.reduce((eres, e, ei) => (
+            eres.concat([macroVerilog.eb.data({
+                id: ei,
+                capacity: e.label.capacity,
+                width: e.label.width,
+                t: {data: 'dat' + ei + '_nxt'},
+                i: {data: 'dat' + ei}
+            })])
+        ), [])
+    );
+
+module.exports = function (g, macros) {
+
+    // data
+
+    const perTargetPort = (n, ni) => {
+        const e = n.to[0];
+        const ename = datPrefix(findGlobalIndexOfEdge(g, e) + (e.label.capacity ? '_nxt' : ''));
+        const nname = datSuffix(n.label || ni);
+        return `// node:${ni} is target port
+assign ${ename} = t_${nname};
+`;
+    };
+
+    const perInitiatorPort = (n, ni) => {
+        const e = n.from[0];
+        const ename = datPrefix(findGlobalIndexOfEdge(g, e));
+        const nname = datSuffix(n.label || ni);
+        return `// node:${ni} is initiator port
+assign i_${nname} = ${ename};
+`;
+    };
+
+    const perEqualityNode = (n, ni) => {
+        const statements = n.to.map(e => {
+            const lhs = datPrefix(findGlobalIndexOfEdge(g, e) + (e.label.capacity ? '_nxt' : ''));
+            const rhs = n.from.map(te => datPrefix(findGlobalIndexOfEdge(g, te)));
+            return `assign ${lhs} = ${rhs};`;
+        });
+
+        return `// node:${ni} equality
+${statements.join('\n')}
+`;
+    };
+
+    const perOperatorNode = (n, ni, label) => {
+        const statements = n.to.map(e => {
+            const ename = datPrefix(findGlobalIndexOfEdge(g, e) + (e.label.capacity ? '_nxt' : ''));
+            const expr = operators[label](n.from.map(te => ({
+                name: datPrefix(findGlobalIndexOfEdge(g, te)),
+                width: te.label.width
+            })));
+            return `assign ${ename} = ${expr};`;
+        });
+
+        return `// node:${ni} operator ${label}
+${statements.join('\n')}
+`;
+    };
+
+    const standardDataPathInstance = (label, macros) => {
+        const descriptor = macros[label] || {};
+        if (descriptor.data) { return descriptor.data; }
+        const ctrl2data = descriptor.ctrl2data || (() => []);
+        const parameters = descriptor.parameters;
+        return p => {
+            const paramInterface = parameters ? (
+                ' #(\n' + Object.keys(parameters).map(param =>
+                    indent + '.' + param + '(NODE' + p.id + '_' + param + ')')
+                    .join(',\n') + '\n)'
+            ) : '';
+            const ctrl2dataWires = ctrl2data(p);
+            const extra = Object.keys(ctrl2dataWires).map(sig =>
+                [ctrl2dataWires[sig][0], ctrl2dataWires[sig][1]]);
+            const localLogic = ctrl2dataWires.reduce((res, sig) => {
+                res[sig[1]] = sig[2];
+                return res;
+            }, {});
+            const targets = p.t.map(b => [b.port, b.wire]);
+            const initiators = p.i.map(b => [b.port, b.wire]);
+            const ports = targets
+                .concat(initiators)
+                .concat(extra)
+                .concat([['clk', 'clk'], ['reset_n', 'reset_n']]);
+            return (
+                vlogic(localLogic).join('\n') + '\n' +
+                datSuffix(label) + '_' + targets.length + '_' + initiators.length +
+                paramInterface + ' unode' + p.id + ' (\n' +
+                ports.map(pair => `    .${pair[0]}(${pair[1]})`).join(',\n') +
+                '\n);'
+            );
+        };
+    };
+
+    const perMacroNode = (n, ni, label) => {
+        const dataPathGen = standardDataPathInstance(label, macros);
+        const insert = dataPathGen({
+            t: n.from.map((e, ei) => {
+                const tindex = findIndexOfNode(g, e.targets, n);
+                const target = e.targets[tindex] || {};
+                const pname = target.headlabel || ei;
+                return {
+                    port: 't_' + datSuffix(pname),
+                    wire: datPrefix(findGlobalIndexOfEdge(g, e)),
+                    width: e.label.width
+                };
+            }),
+            i: n.to.map((e, ei) => ({
+                port: 'i_' + datSuffix(e.taillabel || ei),
+                wire: datPrefix(findGlobalIndexOfEdge(g, e)  + (e.label.capacity ? '_nxt' : '')),
+                width: e.label.width
+            })),
+            id: ni
+        });
+        return `// node:${ni} macro ${label}
+${insert}`;
+    };
+
+
+    const perNode = (n, ni) => {
+        const label = n.label;
+        if (n.from.length === 0) {
+            return perTargetPort(n, ni);
+        }
+        if (n.to.length === 0) {
+            return perInitiatorPort(n, ni);
+        }
+        if (label && operators[label]) {
+            return perOperatorNode(n, ni, label);
+        }
+        if (label && macros[label]) {
+            return perMacroNode(n, ni, label);
+        }
+        if (n.to.length === 1 && n.from.length === 1) {
+            return perEqualityNode(n, ni);
+        }
+        return `// node:${ni} with strange label ${label}`;
+    };
+
+    const dcombNodes = () => ['// per node']
+        .concat(
+            g.nodes.reduce((nres, n, ni) => {
+                return nres.concat(perNode(n, ni));
+            }, [])
+        );
+
+    // ctrl
+
+    const cport = () => {
+        const io = ioReducer(g, {
+            target: (res, nname) => {
+                res[reqSuffix('t_' + nname)] = 1;
+                res[ackSuffix('t_' + nname)] = -1;
+                return res;
+            },
+            initiator: (res, nname) => {
+                res[reqSuffix('i_' + nname)] = -1;
+                res[ackSuffix('i_' + nname)] = 1;
+                return res;
+            }
+        });
+
+        g.edges.reduce((eres, e, ei) => {
+            const ctrl2data = macroVerilog.eb.ctrl2data({
+                capacity: e.label.capacity,
+                id: ei
+            });
+            Object.keys(ctrl2data).map(key => {
+                eres[key] = -ctrl2data[key];
+            });
+            return eres;
+        }, io);
+
+        g.nodes.reduce((nres, n, ni) => {
+            const label = n.label;
+            if (label && macros[label] && macros[label].ctrl2data) {
+                const ctrl2data = macros[label].ctrl2data({id: ni});
+                ctrl2data.map(sig => {
+                    nres[sig[1]] = -sig[2];
+                });
+            }
+            return nres;
+        }, io);
+
+        return vport(io);
+    };
+
+
+    const cJoins = () =>
+        g.nodes.reduce((res, n, ni) => {
+            if (n.from.length > 0 && n.to.length > 0) { // not IO node
+                const label = n.label;
+                const ml = macros[label] || {};
+                if (ml.ctrl) {
+                    return res.concat(ml.ctrl({
+                        id: ni,
+                        t: n.from.map(e =>
+                            findGlobalIndexOfEdge(g, e) + '_' + findIndexOfNode(g, e.targets, n)
+                        ),
+                        i: n.to.map(e =>
+                            findGlobalIndexOfEdge(g, e)
+                        )
+                    }));
+                }
+                if (ml.ctrl2data || (n.to.length > 1)) { // need custom controller
+                    res = res.concat(['// node:' + ni + ' custom controller ' + label]);
+
+                    const bindTargets = n.from.reduce((eres, e, ei) => {
+                        const tindex = findIndexOfNode(g, e.targets, n);
+                        const target = e.targets[tindex] || {};
+                        const pname = target.headlabel || ei;
+                        const ename = findGlobalIndexOfEdge(g, e) + '_' + 0;
+                        return eres.concat([
+                            [reqSuffix('t_' + pname), reqPrefix(ename)],
+                            [ackSuffix('t_' + pname), ackPrefix(ename)]
+                        ]);
+                    }, []);
+
+                    const bindInitiators = n.to.reduce((eres, e, ei) => eres.concat([
+                        [reqSuffix('i_' + (e.taillabel || ei)), reqPrefix(findGlobalIndexOfEdge(g, e))],
+                        [ackSuffix('i_' + (e.taillabel || ei)), ackPrefix(findGlobalIndexOfEdge(g, e))]
+                    ]), []);
+
+                    // t: n.from.map(e => ({
+                    //     name: datPrefix(findGlobalIndexOfEdge(g, e))
+                    // })),
+                    // i: n.to.map(e => ({
+                    //     name: datPrefix(findGlobalIndexOfEdge(g, e)  + (e.label.capacity ? '_nxt' : ''))
+                    // })),
+
+                    const extra = (ml.ctrl2data || (() => []))({
+                        id: ni
+                    });
+
+                    return res.concat(instantiation({
+                        modName: label + '_ctrl_' + n.from.length + '_' + n.to.length,
+                        instName: 'unode' + ni,
+                        bindings: bindTargets
+                            .concat(bindInitiators)
+                            .concat(extra)
+                            .concat([
+                                ['clk', 'clk'],
+                                ['reset_n', 'reset_n']
+                            ])
+                    }));
+                    // return res.concat(macros[label].ctrl({
+                    //     id: ni
+                    // }));
+                }
+
+                res = res.concat(['// node:' + ni + ' join ' + label]);
+                // req path
+                n.to.forEach(eto => {
+                    res = res.concat(assign(
+                        reqPrefix(findGlobalIndexOfEdge(g, eto)),
+                        n.from.map(efrom =>
+                            reqPrefix(
+                                findGlobalIndexOfEdge(g, efrom) + '_' + findIndexOfNode(g, efrom.targets, n)
+                            )
+                        ).join(' & ')
+                    ));
+                });
+
+                n.to.forEach(to => {
+                    const iEdgeTo = edgeIndex(g, to);
+                    n.from.forEach((from, ifrom) => {
+                        const idFrom = edgeIndex(g, from) + '_' + findIndexOfNode(g, from.targets, n);
+                        const rest = n.from.reduce((res2, from2, ifrom2) => {
+                            if (ifrom !== ifrom2) {
+                                res2 = res2.concat([
+                                    reqPrefix(edgeIndex(g, from2) + '_' + findIndexOfNode(g, from2.targets, n))
+                                ]);
+                            }
+                            return res2;
+                        }, [ackPrefix(iEdgeTo)]).join(' & ');
+                        res = res.concat(assign(
+                            ackPrefix(idFrom),
+                            rest
+                        ));
+                    });
+                });
+            }
+            return res;
+        }, []);
+
+    function topModule () {
+        const glabel = gLabel(g);
+        const parameters = g.nodes.reduce((res, n, ni) => {
+            if (macros[n.label] && macros[n.label].parameters) {
+                const params = macros[n.label].parameters;
+                Object.keys(params).map(param => {
+                    res = res.concat([
+                        indent + 'parameter NODE' + ni + '_' + param + ' = ' + JSON.stringify(params[param](ni))
+                    ]);
+                });
+            }
+            return res;
+        }, []).join(',\n');
+        const paramInterface = parameters.length ? ' #(\n' + parameters + '\n)' : '';
+        return ['module ' + glabel + paramInterface + ' (']
+            .concat([indent + '// per node (target / initiator)'])
+            .concat(dport(g))
+            .concat(');')
+            .concat(dlogic(g))
+            // .concat(dcomb(g))
+            .concat(dcombNodes())
+            .concat(dff(g))
+            .concat(ctrlInstance(g, macros))
+            .concat('endmodule // ' + glabel + '\n');
+    }
+
+    function ctrlModule () {
+        const glabel = gLabel(g);
+        return ['module ' + glabel + '_ctrl (']
+            .concat([indent + '// per node (target / initiator)'])
+            .concat(cport())
+            .concat(');')
+            .concat(clogic(g))
+            .concat(cTargets(g))
+            .concat(cForks(g))
+            .concat(cJoins())
+            .concat(cInitiators(g))
+            // .concat(cBuffers(g));
+            .concat('endmodule // ' + glabel + '_ctrl\n');
+    }
+
+    return topModule()
+        .concat(ctrlModule())
+        .join('\n');
+};
+
+},{"./macro-verilog":48,"./operators":51}],45:[function(require,module,exports){
+'use strict';
+/* Graph, Directed, Hypergraph, F-edges */
+
+var genConnector = function (gState, nState, eState) {
+    return function perTarget (nn, headlabel) {
+        if (nn === undefined) {
+            nn = genNode(gState)();
+        }
+        var nnState = nn.state;
+        var nnFrom = nnState.from;
+        eState.targets.push({
+            node: nnState,
+            index: nnFrom.length,
+            headlabel: headlabel
+        });
+        nnFrom.push(eState);
+        return perTarget;
+    };
+};
+
+var genEdge = function (gState, nState) {
+    return function perEdge (label, taillabel) {
+        if (label === undefined) {
+            label = {};
+        }
+        var eState = {
+            source: { node: nState, index: nState.to.length },
+            targets: [],
+            label: label,
+            taillabel: taillabel,
+            root: gState
+        };
+        nState.to.push(eState);
+        gState.edges.push(eState);
+        var res = genConnector(gState, nState, eState);
+        res.state = eState;
+        return res;
+    };
+};
+
+var genNode = function (gState) {
+    return function perNode (label) {
+        var nState = {
+            from: [],
+            to: [],
+            label: label,
+            root: gState
+        };
+        gState.nodes.push(nState);
+        var res = genEdge(gState, nState);
+        res.state = nState;
+        return res;
+    };
+};
+
+module.exports = function (label) {
+    var gState = {nodes: [], edges: [], label: label};
+    var res = genNode(gState);
+    res.nodes = gState.nodes;
+    res.edges = gState.edges;
+    res.label = gState.label;
+    return res;
+};
+
+},{}],46:[function(require,module,exports){
+'use strict';
+
+const forkCtrl = p => {
+
+    const wires = (p.targets.length > 1) ? 'reg  ' + p.targets.map((e, ei) =>
+        `ack${p.id}_${ei}_r`
+    ).join(', ') + ';' : '';
+
+    const regs = (p.targets.length > 1) ? 'wire ' + p.targets.map((e, ei) =>
+        `ack${p.id}_${ei}_s`
+    ).join(', ') + ';' : '';
+
+    const reqs = (p.targets.length > 1) ? p.targets.map((e, ei) =>
+        `assign req${p.id}_${ei} = req${p.id}m & ~ack${p.id}_${ei}_r;`
+    ).join('\n') : `assign req${p.id}_0 = req${p.id}m;`;
+
+    const acks = (p.targets.length > 1) ? p.targets.map((e, ei) =>
+        `assign ack${p.id}_${ei}_s = ack${p.id}_${ei} | ~req${p.id}_${ei};`
+    ).join('\n') : '';
+
+    const ackm = (p.targets.length > 1) ? p.targets.map((e, ei) =>
+        `ack${p.id}_${ei}_s`
+    ).join(' & ') : `ack${p.id}_0`;
+
+    const ackr = (p.targets.length > 1) ? p.targets.map((e, ei) =>
+        `always @(posedge clk or negedge reset_n) if (~reset_n) ack${p.id}_${ei}_r <= 1'b0; else ack${p.id}_${ei}_r <= ack${p.id}_${ei}_s & ~ack${p.id}m;`
+    ).join('\n') : '';
+
+
+    return `
+// edge:${p.id} fork
+${wires}
+${regs}
+${reqs}
+${acks}
+assign ack${p.id}m = ${ackm};
+${ackr}
+`;
+};
+
+module.exports = forkCtrl;
+
+},{}],47:[function(require,module,exports){
+'use strict';
+
+const fhyper = require('./fhyper');
+const fhyperVerilog = require('./fhyper-verilog');
+const fhyperDot = require('./fhyper-dot');
+const fhyperManifest = require('./fhyper-manifest');
+const nodeForkCtrl = require('./node-fork-ctrl');
+const nodeMacros = require('./node-macros');
+
+module.exports = {
+    circuit: fhyper,
+    verilog: fhyperVerilog,
+    dot: fhyperDot,
+    manifest: fhyperManifest,
+    macros: nodeMacros,
+    ctrl: {
+        fork: nodeForkCtrl
+    }
+};
+
+},{"./fhyper":45,"./fhyper-dot":42,"./fhyper-manifest":43,"./fhyper-verilog":44,"./node-fork-ctrl":49,"./node-macros":50}],48:[function(require,module,exports){
+'use strict';
+
+const eb15 = require('./eb15');
+const eb17 = require('./eb17');
+const ebfifo = require('./ebfifo');
+const forkCtrl = require('./fork-ctrl');
+
+const fork = {
+    ctrl: forkCtrl,
+    data: () => '',
+    ctrl2data: () => ({})
+};
+
+const join = {
+    ctrl: () => '',
+    data: () => '',
+    ctrl2data: () => ({})
+};
+
+const eb0 = {
+    data: p => `
+// edge:${p.id} EB0
+`,
+    ctrl: p => `
+// edge:${p.id} EB0
+wire ${p.i.ready}, ${p.i.valid};
+assign ${p.i.valid} = ${p.t.valid};
+assign ${p.t.ready} = ${p.i.ready};
+`,
+    ctrl2data: () => ({})
+};
+
+const eb1 = {
+    data: p => `
+// edge:${p.id} EB1
+wire en${p.id};
+reg [${p.width - 1}:0] ${p.i.data}_r;
+always @(posedge clk) if (en${p.id}) ${p.i.data}_r <= ${p.t.data};
+assign ${p.i.data} = ${p.i.data}_r;
+`,
+    ctrl: p => `
+// edge:${p.id} EB1
+wire ${p.i.ready};
+reg ${p.i.valid};
+assign en${p.id} = ${p.t.valid} & ${p.t.ready};
+assign ${p.t.ready} = ~${p.i.valid} | ${p.i.ready};
+always @(posedge clk or negedge reset_n) if (~reset_n) ${p.i.valid} <= 1'b0; else ${p.i.valid} <= ~${p.t.ready} | ${p.t.valid};
+`,
+    ctrl2data: p => {
+        let res = {};
+        res[`en${p.id}`] = 1;
+        return res;
+    }
+};
+
+const eb = {
+    ctrl: p =>
+        (p.capacity === 1) ? eb1.ctrl(p) :
+            (p.capacity === 1.5) ? eb15.ctrl(p) :
+                (p.capacity === 1.7) ? eb17.ctrl(p) :
+                    (p.capacity >= 2) ? ebfifo.ctrl(p) :
+                        eb0.ctrl(p),
+    data: p =>
+        (p.capacity === 1) ? eb1.data(p) :
+            (p.capacity === 1.5) ? eb15.data(p) :
+                (p.capacity === 1.7) ? eb17.data(p) :
+                    (p.capacity >= 2) ? ebfifo.data(p) :
+                        eb0.data(p),
+    ctrl2data: p =>
+        (p.capacity === 1) ? eb1.ctrl2data(p) :
+            (p.capacity === 1.5) ? eb15.ctrl2data(p) :
+                (p.capacity === 1.7) ? eb17.ctrl2data(p) :
+                    (p.capacity >= 2) ? ebfifo.ctrl2data(p) :
+                        eb0.ctrl2data(p)
+};
+
+module.exports = {
+    fork: fork,
+    join: join,
+    eb0: eb0,
+    eb1: eb1,
+    eb15: eb15,
+    ebfifo: ebfifo,
+    eb: eb,
+    ctrl: {
+        fork: forkCtrl
+    }
+};
+
+},{"./eb15":39,"./eb17":40,"./ebfifo":41,"./fork-ctrl":46}],49:[function(require,module,exports){
+'use strict';
+
+// fork controller generator for nodes
+
+const nodeForkCtrl = p => {
+    // console.log(p);
+    const t = p.t[0];
+    return [`// node:${p.id} fork controller`]
+        .concat(
+            'reg    ' + p.i.map(e => `req${e}_reg`).join(', ')
+        )
+        .concat(p.i.map(e =>
+            `assign req${e} = req${t} & ~req${e}_reg`
+        ))
+        .concat(
+            'wire   ' + p.i.map(e => `ack${e}_g`).join(', ')
+        )
+        .concat(p.i.map(e =>
+            `assign ack${e}_g = ack${e} | ~req${e}`
+        ))
+        .concat(`assign ack${t} = ` + p.i.map(e =>
+            `ack${e}_g`
+        ).join(' & '))
+        .concat(p.i.map(e =>
+            `always @(posedge clk or negedge reset_n) if (~reset_n) req${e}_reg <= 1'b0; else req${e}_reg <= ack${e}_g & ~ack${t}`
+        ))
+        .concat('')
+        .join(';\n');
+};
+module.exports = nodeForkCtrl;
+
+},{}],50:[function(require,module,exports){
+'use strict';
+
+const nodeForkCtrl = require('./node-fork-ctrl');
+
+const deconcat = {
+    data: p => {
+        const width = p.i.reduce((res, sig) => (res + sig.width), 0);
+        return `assign {${
+            p.i.reverse().map(sig => sig.wire).join(', ')
+        }} = ${p.t[0].wire}[${width - 1}:0];`;
+    },
+    ctrl: nodeForkCtrl
+};
+
+module.exports = {
+    deconcat: deconcat
+};
+
+},{"./node-fork-ctrl":49}],51:[function(require,module,exports){
+'use strict';
+
+function half (arg) {
+    const name = arg.name;
+    const width = arg.width;
+    return [`${name}[${width / 2 - 1}:0]`, `${name}[${width - 1}:${width / 2}]`];
+}
+
+function signed (op) {
+    return function (args) {
+        const args2 = (args.length === 1) ? half(args[0]) : args.map(e => e.name);
+        return '(' + args2.map(e => '$signed(' + e + ')').join(' ' + op + ' ') + ')';
+    };
+}
+
+function logical (op) {
+    return function (args) {
+        const args2 = (args.length === 1) ? half(args[0]) : args.map(e => e.name);
+        return '(' + args2.join(' ' + op + ' ') + ')';
+    };
+}
+
+module.exports = {
+
+/*
+**   exponentiation,  numeric ** integer,  result numeric
+abs  absolute value,  abs numeric,  result numeric
+not  complement,      not logic or boolean,  result same
+
+*    multiplication,  numeric * numeric,  result numeric
+/    division,        numeric / numeric,  result numeric
+mod  modulo,          integer mod integer,  result integer
+rem  remainder,       integer rem integer,  result integer
+
++    unary plus,      + numeric,  result numeric
+-    unary minus,     - numeric,  result numeric
+
++    addition,        numeric + numeric,  result numeric
+-    subtraction,     numeric - numeric,  result numeric
+&    concatenation,   array or element & array or element,
+                        result array
+*/
+
+    add:  signed('+'),
+    '+':  signed('+'),
+    sub:  signed('-'),
+    '-':  signed('-'),
+    mul:  signed('*'),
+    '*':  signed('*'),
+
+    sll:  logical('<<'), // shift left logical,     logical array sll integer,  result same
+    srl:  logical('>>>'), // shift right logical,    logical array srl integer,  result same
+    sla:  logical('<<'), // shift left arithmetic,  logical array sla integer,  result same
+    sra:  logical('>>'), // shift right arithmetic, logical array sra integer,  result same
+    rol:  logical('rol'), // rotate left,            logical array rol integer,  result same
+    ror:  logical('ror'), // rotate right,           logical array ror integer,  result same
+
+    /*
+    =    test for equality, result is boolean
+    /=   test for inequality, result is boolean
+    <    test for less than, result is boolean
+    <=   test for less than or equal, result is boolean
+    >    test for greater than, result is boolean
+    >=   test for greater than or equal, result is boolean
+    */
+
+    and:  logical('&'), // logical and,                logical array or boolean,  result is same
+    or:   logical('|'), // logical or,                 logical array or boolean,  result is same
+    nand: logical('&'), // logical complement of and,  logical array or boolean,  result is same
+    nor:  logical('|'), // logical complement of or,   logical array or boolean,  result is same
+    xor:  logical('^'), // logical exclusive or,       logical array or boolean,  result is same
+    xnor: logical('^'),  // logical complement of exclusive or,  logical array or boolean,  result is same
+
+    concat: args => '{' + args.reverse().map(e => e.name).join(', ') + '}'
+};
+
+},{}],52:[function(require,module,exports){
 'use strict';
 
 const validateReSchemaErrors = require('./gen-errors')
@@ -24384,7 +25778,7 @@ module.exports = React => {
     };
 };
 
-},{"./gen-errors":39,"./get-defaults":40,"./validate-array":49}],36:[function(require,module,exports){
+},{"./gen-errors":56,"./get-defaults":57,"./validate-array":66}],53:[function(require,module,exports){
 'use strict';
 
 const reGenLiInput = require('./li-input')
@@ -24426,7 +25820,7 @@ module.exports = React => {
     };
 };
 
-},{"./li-input":43,"./validate-boolean":50}],37:[function(require,module,exports){
+},{"./li-input":60,"./validate-boolean":67}],54:[function(require,module,exports){
 'use strict';
 
 const validateReSchemaErrors = require('./gen-errors')
@@ -24539,7 +25933,7 @@ module.exports = React => {
     };
 };
 
-},{"./gen-errors":39,"./validate-enum":51}],38:[function(require,module,exports){
+},{"./gen-errors":56,"./validate-enum":68}],55:[function(require,module,exports){
 'use strict';
 
 const bb = (des, a1, a2) => (
@@ -24595,7 +25989,7 @@ module.exports = React => des => {
     return genForm;
 };
 
-},{}],39:[function(require,module,exports){
+},{}],56:[function(require,module,exports){
 'use strict';
 
 module.exports = validator => React => {
@@ -24612,7 +26006,7 @@ module.exports = validator => React => {
     };
 };
 
-},{}],40:[function(require,module,exports){
+},{}],57:[function(require,module,exports){
 'use strict';
 
 function getDefaults (schema) {
@@ -24643,7 +26037,7 @@ function getDefaults (schema) {
 
 module.exports = getDefaults;
 
-},{}],41:[function(require,module,exports){
+},{}],58:[function(require,module,exports){
 'use strict';
 
 const reGenForm = require('./form')
@@ -24671,7 +26065,7 @@ module.exports = {
     string: reGenString
 };
 
-},{"./array":35,"./boolean":36,"./enum":37,"./form":38,"./integer":42,"./null":44,"./number":45,"./object":46,"./one-of":47,"./string":48}],42:[function(require,module,exports){
+},{"./array":52,"./boolean":53,"./enum":54,"./form":55,"./integer":59,"./null":61,"./number":62,"./object":63,"./one-of":64,"./string":65}],59:[function(require,module,exports){
 'use strict';
 
 const reGenLiInput = require('./li-input')
@@ -24715,7 +26109,7 @@ module.exports = React => {
     };
 };
 
-},{"./li-input":43,"./validate-numeric":53}],43:[function(require,module,exports){
+},{"./li-input":60,"./validate-numeric":70}],60:[function(require,module,exports){
 'use strict';
 
 const genErrors = require('./gen-errors');
@@ -24799,7 +26193,7 @@ module.exports = React => {
     };
 };
 
-},{"./gen-errors":39}],44:[function(require,module,exports){
+},{"./gen-errors":56}],61:[function(require,module,exports){
 'use strict';
 
 const validateReSchemaErrors = require('./gen-errors')
@@ -24824,7 +26218,7 @@ module.exports = React => {
     };
 };
 
-},{"./gen-errors":39,"./validate-null":52}],45:[function(require,module,exports){
+},{"./gen-errors":56,"./validate-null":69}],62:[function(require,module,exports){
 'use strict';
 
 const reGenLiInput = require('./li-input')
@@ -24868,7 +26262,7 @@ module.exports = React => {
     };
 };
 
-},{"./li-input":43,"./validate-numeric":53}],46:[function(require,module,exports){
+},{"./li-input":60,"./validate-numeric":70}],63:[function(require,module,exports){
 'use strict';
 
 const validateReSchemaErrors = require('./gen-errors')
@@ -24946,7 +26340,7 @@ module.exports = React => {
     };
 };
 
-},{"./gen-errors":39,"./validate-object":54}],47:[function(require,module,exports){
+},{"./gen-errors":56,"./validate-object":71}],64:[function(require,module,exports){
 'use strict';
 
 const cloneDeep = require('lodash.clonedeep')
@@ -25051,7 +26445,7 @@ module.exports = validator => React => {
     };
 };
 
-},{"./get-defaults":40,"lodash.clonedeep":22,"lodash.mergewith":23}],48:[function(require,module,exports){
+},{"./get-defaults":57,"lodash.clonedeep":26,"lodash.mergewith":27}],65:[function(require,module,exports){
 'use strict';
 
 const reGenLiInput = require('./li-input')
@@ -25091,7 +26485,7 @@ module.exports = React => {
     };
 };
 
-},{"./li-input":43,"./validate-string":55}],49:[function(require,module,exports){
+},{"./li-input":60,"./validate-string":72}],66:[function(require,module,exports){
 'use strict';
 
 module.exports = schema => data => {
@@ -25120,7 +26514,7 @@ module.exports = schema => data => {
     return errors;
 };
 
-},{}],50:[function(require,module,exports){
+},{}],67:[function(require,module,exports){
 'use strict';
 
 module.exports = () => data => {
@@ -25130,7 +26524,7 @@ module.exports = () => data => {
     return [];
 };
 
-},{}],51:[function(require,module,exports){
+},{}],68:[function(require,module,exports){
 'use strict';
 
 module.exports = schema => data => {
@@ -25139,7 +26533,7 @@ module.exports = schema => data => {
         : [];
 };
 
-},{}],52:[function(require,module,exports){
+},{}],69:[function(require,module,exports){
 'use strict';
 
 module.exports = () => data => {
@@ -25149,7 +26543,7 @@ module.exports = () => data => {
     return [];
 };
 
-},{}],53:[function(require,module,exports){
+},{}],70:[function(require,module,exports){
 'use strict';
 
 module.exports = schema => {
@@ -25195,7 +26589,7 @@ module.exports = schema => {
     };
 };
 
-},{}],54:[function(require,module,exports){
+},{}],71:[function(require,module,exports){
 'use strict';
 
 const tv4 = require('tv4');
@@ -25210,7 +26604,7 @@ module.exports = schema => data => {
         );
 };
 
-},{"tv4":56}],55:[function(require,module,exports){
+},{"tv4":73}],72:[function(require,module,exports){
 'use strict';
 
 module.exports = schema => data => {
@@ -25244,7 +26638,7 @@ module.exports = schema => data => {
     return errors;
 };
 
-},{}],56:[function(require,module,exports){
+},{}],73:[function(require,module,exports){
 /*
 Author: Geraint Luff and others
 Year: 2013
@@ -26926,7 +28320,7 @@ tv4.tv4 = tv4;
 return tv4; // used by _header.js to globalise.
 
 }));
-},{}],57:[function(require,module,exports){
+},{}],74:[function(require,module,exports){
 'use strict';
 
 const React = require('react');
@@ -26935,6 +28329,7 @@ const update = require('immutability-helper');
 const resch = require('resch');
 const reGenChart = require('../lib/re-gen-chart');
 const reGenLogPlot = require('../lib/re-gen-logplot');
+const reGenVerilog = require('../lib/re-gen-verilog');
 const testbench = require('../lib/testbench');
 
 const $ = React.createElement;
@@ -26942,6 +28337,7 @@ const desc = Object.assign({}, resch);
 const genForm = resch.__form(React)(desc);
 const Chart = reGenChart(React)({});
 const LogPlot = reGenLogPlot(React)({});
+const Verilog = reGenVerilog(React)({});
 
 class App extends React.Component {
 
@@ -26954,10 +28350,11 @@ class App extends React.Component {
             schema: {
                 type: 'object',
                 properties: {
-                    dataWidth: {type: 'number', minimum: 4, maximum: 31, title: 'I/Q LUT data width [bit] : 2 * '},
-                    addrWidth: {type: 'number', minimum: 1, maximum: 18, title: 'LUT address width [bit] : '},
-                    nCordics:  {type: 'number', minimum: 0, maximum: 12, title: 'number of CORDIC stages: '},
-                    corrector: {type: 'number', minimum: 1, maximum: 4,  title: 'CORDIC step correction: '}
+                    dataWidth: {type: 'integer', minimum: 4, maximum: 30, title: 'I/Q LUT data width [bit] : 2 * '},
+                    addrWidth: {type: 'integer', minimum: 0, maximum: 18, title: 'LUT address width [bit] : '},
+                    nCordics:  {type: 'integer', minimum: 0, maximum: 12, title: 'number of CORDIC stages: '},
+                    corrector: {type: 'integer', minimum: -2, maximum: 2,  title: 'CORDIC step correction: '},
+                    scale:     {type: 'number', minimum: 0, maximum: 2,  title: 'scale correction: '}
                 }
             },
             path: [],
@@ -26977,6 +28374,7 @@ class App extends React.Component {
         return (
             $('span', {},
                 $(this.Form, {data: config}),
+                $(Verilog, config),
                 $(Chart, {data: res.contours}),
                 $(LogPlot, {data: res.evms})
             )
@@ -26987,13 +28385,14 @@ class App extends React.Component {
 ReactDOM.render(
     $(App, {data: {
         dataWidth: 16,
-        addrWidth: 4,
-        nCordics: 0,
-        corrector: 2
+        addrWidth: 10,
+        nCordics: 4,
+        corrector: 0,
+        scale: 1
     }}),
     document.getElementById('root')
 );
 
 /* eslint-env browser */
 
-},{"../lib/re-gen-chart":2,"../lib/re-gen-logplot":3,"../lib/testbench":4,"immutability-helper":20,"react":34,"react-dom":31,"resch":41}]},{},[57]);
+},{"../lib/re-gen-chart":5,"../lib/re-gen-logplot":6,"../lib/re-gen-verilog":7,"../lib/testbench":8,"immutability-helper":24,"react":38,"react-dom":35,"resch":58}]},{},[74]);
