@@ -3,14 +3,18 @@
 
 const range = require('lodash.range');
 
-module.exports = function (addrWidth, dataWidth, nCordics, corrector) {
-    addrWidth = addrWidth >>> 0;
+module.exports = function (config) {
+    const addrWidth = config.addrWidth >>> 0;
+    const nCordics = config.nCordics >>> 0;
+    const corrector = config.corrector >>> 0;
+    const betaWidth = config.betaWidth >>> 0;
 
-    const betaOffset = addrWidth + 3; // offset from the left
+    // const betaOffset = 32 - 3 + addrWidth + betaWidth;
 
     const cordics = range(nCordics).map(i => {
         const shift = i + addrWidth + 2 + corrector;
-        const scale = Math.pow(2, betaOffset + 29 + corrector);
+        const golden = 1.618033988749894848;
+        const scale = Math.sqrt(golden) * Math.pow(2, betaWidth + addrWidth);
         return {
             sigma: Math.round(scale * Math.atan(1 / (1 << shift))),
             shift: shift
@@ -26,9 +30,12 @@ module.exports = function (addrWidth, dataWidth, nCordics, corrector) {
 
 const range = require('lodash.range');
 
-module.exports = function (addrWidth, dataWidth, nCordics, corrector, scale) {
-    addrWidth = addrWidth >>> 0;
-    scale = scale || 1;
+module.exports = function (config) {
+    const addrWidth = config.addrWidth >>> 0;
+    const dataWidth = config.dataWidth;
+    const nCordics = config.nCordics;
+    const corrector = config.corrector;
+    const scale = config.scale || 1;
 
     const lutSize = Math.pow(2, addrWidth);
 
@@ -65,16 +72,17 @@ const lutGen = require('./lut');
 const cordicGen = require('./cordic');
 
 // fixed-point NCO model
-module.exports = function (addrWidth, dataWidth, nCordics, corrector, scale) {
-    addrWidth = addrWidth >>> 0;
-    scale = scale || 1;
+module.exports = function (config) {
+    const addrWidth = config.addrWidth >>> 0;
+    const dataWidth = config.dataWidth >>> 0;
+    const betaWidth = config.betaWidth >>> 0;
 
     // float to fixed point
     const dataScale = (1 << dataWidth);
 
-    const lut = lutGen(addrWidth, dataWidth, nCordics, corrector, scale);
+    const lut = lutGen(config);
 
-    console.log(lut.map(e => e.re.toString(16) + ' +j ' + e.im.toString(16)).join('\n'));
+    // console.log(lut.map(e => e.re.toString(16) + ' +j ' + e.im.toString(16)).join('\n'));
 
     // const betaRange = 2 * Math.PI / 8 / lutSize;
     // const startShift = -Math.log2(Math.tan(betaRange));
@@ -86,14 +94,14 @@ module.exports = function (addrWidth, dataWidth, nCordics, corrector, scale) {
     const addrOffset = phaseOffset - addrWidth;
     const addrMask = (1 << addrWidth) - 1;
 
-    const betaOffset = addrWidth + 3; // offset from the left
-    const betaMask = (1 << addrOffset) - 1;
+    const betaOffset = 32 - 3 - addrWidth - betaWidth;
+    const betaMask = (1 << betaWidth) - 1;
 
-    // console.log(betaOffset);
+    // console.log(betaOffset, betaMask.toString(16));
 
-    const cordics = cordicGen(addrWidth, dataWidth, nCordics, corrector);
+    const cordics = cordicGen(config);
 
-    console.log(cordics.map(e => 's:' + e.sigma.toString(16) + ' >>:' + e.shift).join('\n'));
+    // console.log(cordics.map(e => 's:' + e.sigma.toString(16) + ' >>:' + e.shift).join('\n'));
 
     return function (angle) {
         angle = angle >>> 0;
@@ -130,7 +138,14 @@ module.exports = function (addrWidth, dataWidth, nCordics, corrector, scale) {
         */
 
 
-        let beta = (((angle & betaMask) << betaOffset) ^ 0x7fffffff);
+        // let beta = ((1 << (betaWidth - 1)) - ((angle >> betaOffset) & betaMask));
+
+        let beta = ((1 << (betaWidth - 1)) - ((angle >> betaOffset) & betaMask));
+
+        // console.log(beta.toString(16), val.re, val.im, ' START');
+
+        // const betaDeg = 360 * beta / (1 << (betaWidth + addrWidth + 3));
+        // const b1 = Math.atan2(val.im, val.re);
 
         cordics.map(p => {
             if (beta > 0) {
@@ -144,8 +159,12 @@ module.exports = function (addrWidth, dataWidth, nCordics, corrector, scale) {
                 val.im   = val.im + (val.re >> p.shift);
                 val.re   = re;
             }
+            // console.log(beta.toString(16), val.re, val.im);
         });
-        // console.log(beta);
+
+        // const b2 = Math.atan2(val.im, val.re);
+        // const b2b1 = 180 * (b2 - b1) / Math.PI;
+        // console.log(b2b1 / betaDeg);
 
         return {
             re: val.re / dataScale,
@@ -168,8 +187,8 @@ module.exports = config => {
     const addrWidth = config.addrWidth;
     const nCordics = config.nCordics;
 
-    const lut = lutGen(addrWidth, dataWidth, nCordics, 2);
-    const cordics = cordicGen(addrWidth, dataWidth, nCordics, 2);
+    const lut = lutGen(config);
+    const cordics = cordicGen(config);
 
     const macros = {
         'nco_lut': {
@@ -356,6 +375,7 @@ module.exports = React => {
                     }),
                     props.data.map((val, idx) =>
                         $('circle', {
+                            key: idx,
                             cx: (idx * 32 + 32),
                             cy: (-val * 16),
                             r: 4,
@@ -436,7 +456,7 @@ const genModel = require('./model');
 
 const dbrange = 512;
 
-const randomPhase = () => (Math.random() * (1 << 31)) >>> 0;
+const randomPhase = () => (Math.random() * (1 << 31)) | 0;
 
 const exp = phase => {
     const phi = Math.PI * (phase / ((1 << 31) >>> 0));
@@ -469,23 +489,26 @@ const hullErr = arr => {
 
 const evm = arr => Math.log2(
     arr.reduce((prev, cur) =>
-        prev + (cur.re * cur.im) + (cur.im * cur.im), 0
+        prev + (cur.re * cur.re) + (cur.im * cur.im), 0
     ) / arr.length
 );
 
 module.exports = config => {
     // create chain of designs
     const addrWidth = config.addrWidth;
-    const dataWidth = config.dataWidth;
 
-    const designs = range(addrWidth).map(i => ({
-        addrWidth: i,
-        nCordics: 0
-    }))
-        .concat(range(config.nCordics + 1).map(i => ({
-            addrWidth: addrWidth,
-            nCordics: i
-        })));
+    const designs = range(addrWidth).map(i => {
+        const res = Object.assign({}, config);
+        res.addrWidth = i;
+        res.nCordics = 0;
+        return res;
+    })
+        .concat(range(config.nCordics + 1).map(i => {
+            const res = Object.assign({}, config);
+            res.addrWidth = addrWidth;
+            res.nCordics = i;
+            return res;
+        }));
 
     // console.log(designs);
 
@@ -493,14 +516,8 @@ module.exports = config => {
     let evms = [];
 
     designs.map((design) => {
-        const model = genModel(
-            design.addrWidth,
-            dataWidth,
-            design.nCordics,
-            config.corrector,
-            config.scale
-        );
-        const errors = Array(5000).fill(0).map(() => {
+        const model = genModel(design);
+        const errors = Array(10000).fill(0).map(() => { // 1000
             const phase = randomPhase();
             // const phase = (i << (32 - 3 - 2) >>> 0);
             const res = model(phase);
@@ -28352,9 +28369,10 @@ class App extends React.Component {
                 properties: {
                     dataWidth: {type: 'integer', minimum: 4, maximum: 30, title: 'I/Q LUT data width [bit] : 2 * '},
                     addrWidth: {type: 'integer', minimum: 0, maximum: 18, title: 'LUT address width [bit] : '},
-                    nCordics:  {type: 'integer', minimum: 0, maximum: 12, title: 'number of CORDIC stages: '},
-                    corrector: {type: 'integer', minimum: -2, maximum: 2,  title: 'CORDIC step correction: '},
-                    scale:     {type: 'number', minimum: 0, maximum: 2,  title: 'scale correction: '}
+                    betaWidth: {type: 'integer', minimum: 0, maximum: 32, title: 'Beta angle width [bit] : '},
+                    nCordics:  {type: 'integer', minimum: 0, maximum: 12, title: 'number of CORDIC stages : '},
+                    corrector: {type: 'integer', minimum: -2, maximum: 2,  title: 'CORDIC step correction : '},
+                    scale:     {type: 'number',  minimum: 0, maximum: 2,  title: 'scale correction : '}
                 }
             },
             path: [],
@@ -28375,8 +28393,8 @@ class App extends React.Component {
             $('span', {},
                 $(this.Form, {data: config}),
                 $(Verilog, config),
-                $(Chart, {data: res.contours}),
-                $(LogPlot, {data: res.evms})
+                $(LogPlot, {data: res.evms}),
+                $(Chart, {data: res.contours})
             )
         );
     }
@@ -28385,10 +28403,11 @@ class App extends React.Component {
 ReactDOM.render(
     $(App, {data: {
         dataWidth: 16,
-        addrWidth: 10,
-        nCordics: 4,
+        addrWidth: 0,
+        betaWidth: 14,
+        nCordics: 8,
         corrector: 0,
-        scale: 1
+        scale: 0.999999
     }}),
     document.getElementById('root')
 );
