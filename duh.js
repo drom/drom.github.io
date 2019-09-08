@@ -262,7 +262,7 @@ const attr = access => ({
 })[access] || '';
 
 const csrDisgram = p => {
-  const width = ((980 - 8) >> 5) << 5;
+  const width = ((940) >> 5) << 5;
   const f = roboto.Roboto()(14);
 
   const cellWidth = p.reduce((res, e) => {
@@ -304,10 +304,13 @@ const csrTable = props => {
     ['td', row.description || row.desc || '---'],
     ['td', (row.resetValue === undefined) ? '-' : row.resetValue]
   ]);
-  return ['table'].concat([head]).concat(rows);
+  return ['div', {class: 'tabler'}, ['table'].concat([head]).concat(rows)];
 };
 
 const abTable = registers => {
+  if (registers.length === 0) {
+    return ['div'];
+  }
   const head = ['tr', ['th', 'Offset'], ['th', 'Name'], ['th', 'Description'], ['th', 'Reset']];
   const rows = registers.map(reg => ['tr',
     ['td', hex(reg.addressOffset)],
@@ -315,7 +318,7 @@ const abTable = registers => {
     ['td', reg.description || ''],
     ['td', hex(reg.resetValue)]
   ]);
-  return ['table'].concat([head]).concat(rows);
+  return ['div', {class: 'tabler'}, ['table'].concat([head]).concat(rows)];
 };
 
 const render = comp => {
@@ -386,14 +389,39 @@ module.exports = comp =>
 
 module.exports = () => ['span', ['style', `
 body {
-  font-family: 'IBM Plex Sans', sans-serif;
+  font-family: "IBM Plex Sans", sans-serif;
   font-size: 16px;
   hyphens: auto;
+  counter-reset: h4counter;
+}
+h2 {
+  counter-reset: h3counter;
+}
+h3:before {
+  content: counter(h3counter) ".\\0000a0\\0000a0";
+  counter-increment: h3counter;
+  counter-reset: h4counter;
+}
+h4:before {
+  content: counter(h3counter) "." counter(h4counter) ".\\0000a0\\0000a0";
+  counter-increment: h4counter;
+  counter-reset: h5counter;
+}
+h5:before {
+  content: counter(h3counter) "." counter(h4counter) "." counter(h5counter) ".\\0000a0\\0000a0";
+  counter-increment: h5counter;
+}
+h5 {
+  font-size: 18px;
 }
 table {
+  width: 100%;
   border-collapse: collapse;
+  max-width: 100%;
   border: 1px solid #000;
-  margin: 3px
+}
+.tabler {
+  margin: 5px;
 }
 th,td {
   padding: 2px 8px;
@@ -409,7 +437,7 @@ a {
 
 @media screen {
   .container {
-    max-width: 968px;
+    max-width: 938px;
     margin: 0 auto;
   }
 }
@@ -422,6 +450,30 @@ a {
   }
   body {
     font-size: 14pt;
+  }
+  @page {
+    margin-top: 15mm;
+    margin-bottom: 15mm;
+  }
+  @page :left {
+    margin-left: 15mm;
+    margin-right: 15mm;
+  }
+  @page :right {
+    margin-left: 15mm;
+    margin-right: 15mm;
+  }
+  @page :first {
+    margin-left: 15mm;
+    margin-right: 15mm;
+  }
+  h3 {
+    break-before: page;
+    page-break-before: page;
+  }
+  h2, h3, h4, h5 {
+    break-after: avoid-page;
+    page-break-after: avoid-page;
   }
 
 }
