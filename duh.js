@@ -1,4 +1,113 @@
 (function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
+exports['Roboto'] = function () {
+    const table = [
+            '2',
+            '3',
+            '4',
+            '5',
+            '6',
+            '7',
+            '8',
+            '2.328125',
+            '5.0625',
+            '3.09375',
+            '3.140625',
+            '5.109375',
+            '2.375',
+            '2.1875',
+            '4.578125',
+            '4.265625',
+            '8.09375',
+            '5.125',
+            '6.140625',
+            '6.421875',
+            '2.453125',
+            '6.203125',
+            '5.34375',
+            '2.390625',
+            '5.078125',
+            '2.203125',
+            '3.15625',
+            '5.140625',
+            '3.0625',
+            '3.046875',
+            '6.125'
+        ], baseSize = 9, height = 11, descent = 3.8499999999999996, defaultWidth = 6.5703125, re = new RegExp('([\',;])|(["\\-\\[`t])|([\\*/\\\\\\^f])|([=>FJL_acehknsuvxyz])|([#&ABCDKPRTUVXYZ])|([%w])|([MWm])|([!])|([\\$0123456789bgp])|([\\(])|([\\)])|([\\+])|([\\.])|([:])|([<])|([\\?])|([@])|([Eq])|([G])|([HN])|([I])|([OQ])|([S])|([\\]])|([d])|([il\\|])|([j])|([o])|([r])|([\\{\\}])|([~])');
+    return function (fontSize) {
+        const ratio = fontSize / baseSize;
+        const getIndex = ch => {
+            const m = ch.match(re);
+            if (m !== null)
+                for (let i = 0; i < table.length; i += 1)
+                    if (m[i + 1] !== undefined)
+                        return i;
+        };
+        const getWidth = str => {
+            return str.split('').reduce((acc, e) => acc + (table[getIndex(e)] || defaultWidth) * ratio, 0);
+        };
+        return {
+            getHeight: function () {
+                return ratio * height;
+            },
+            getDescent: function () {
+                return ratio * descent;
+            },
+            getWidth: getWidth
+        };
+    };
+};
+},{}],2:[function(require,module,exports){
+'use strict';
+
+const roboto = require('./Roboto.js');
+
+exports.left = arr => {
+  let h = 10;
+  let w = 0;
+  let res = [];
+  (arr || []).map(e => {
+    res.push(['g', {transform: `translate(10,${h})`}, e]);
+    w = Math.max(w, e[1].w);
+    h += (e[1].h + 10);
+  });
+  w += 20;
+  h += 10;
+  return ['g', {w: w, h: h}, ['rect', {class: 'box', width: w, height: h}]].concat(res);
+};
+
+exports.top = arr => {
+  let h = 0;
+  let w = 10;
+  let res = [];
+  (arr || []).map(e => {
+    res.push(['g', {transform: `translate(${w},10)`}, e]);
+    h = Math.max(h, e[1].h);
+    w += (e[1].w + 10);
+  });
+  h += 20;
+  w += 10;
+  return ['g', {w: w, h: h}, ['rect', {class: 'box', width: w, height: h}]].concat(res);
+};
+
+exports.text = src => {
+  const f = roboto.Roboto()(14);
+  const w = f.getWidth(src);
+  const h = f.getHeight();
+  return ['g', {w: w, h: h}, ['text', {class: 'label', x: w >> 1, y: h >> 1}, src]];
+};
+
+exports.svg = ml => ['svg', {width: ml[1].w, height: ml[1].h},
+  ['style', `
+.box { fill:hsla(0,0%,0%,0.1); }
+.label {
+  text-anchor: middle;
+  alignment-baseline: middle;
+}
+`],
+  ml
+];
+
+},{"./Roboto.js":1}],3:[function(require,module,exports){
 'use strict';
 
 const duhBus = require('duh-bus');
@@ -49,7 +158,7 @@ module.exports = comp => {
   const bis = comp.busInterfaces || [];
   const bisGroups = bisGroupon(bis);
 
-  return ['div',
+  return bisGroups.length ? ['div',
     ['h2', 'Bus Interfaces']
   ].concat(bisGroups.map(group => {
 
@@ -107,16 +216,16 @@ module.exports = comp => {
         ))
       ]
     ];
-  }));
+  })) : ['div'];
 };
 
-},{"duh-bus":50}],2:[function(require,module,exports){
+},{"duh-bus":53}],4:[function(require,module,exports){
 'use strict';
 
 module.exports = function (comp) {
   const model = comp.model || {};
   const ports = model.ports || {};
-  return ['div',
+  return (Object.keys(ports).length) ? ['div',
     ['h2', 'Ports'],
     ['table',
       ['tbody',
@@ -134,27 +243,77 @@ module.exports = function (comp) {
         ))
       )
     ]
-  ]; // .concat(Object.keys(ports).map(key => ['div', key]));
+  ] : ['div'];
 };
 
-},{}],3:[function(require,module,exports){
+},{}],5:[function(require,module,exports){
 'use strict';
 
-var bitField = require('bit-field');
+const bitField = require('bit-field');
+
+const roboto = require('./Roboto.js');
+
+const hex = val => '0x' + val.toString(16);
+
+const attr = access => ({
+  'read-write': 'RW',
+  'wite-only': 'W',
+  'read-only': 'R'
+})[access] || '';
+
+const csrDisgram = p => {
+  const width = ((980 - 8) >> 5) << 5;
+  const f = roboto.Roboto()(14);
+
+  const cellWidth = p.reduce((res, e) => {
+    const textWidth = f.getWidth(e.name || '') | 0;
+    const bitWidth = e.bitWidth || 1;
+    e.bits = e.bitWidth;
+    e.attr = attr(e.access);
+    // e.name += '-' + textWidth + ',' + bitWidth;
+    return Math.max(textWidth / bitWidth, res);
+  }, 1);
+
+  // fill the gaps
+  let idx = 0;
+  let p1 = p.reduce((res, e) => {
+    if (e.bitOffset > idx) {
+      res.push({bits: e.bitOffset - idx});
+    }
+    res.push(e);
+    idx = e.bitOffset + e.bitWidth;
+    return res;
+  }, []);
+  if (idx < 32) {
+    p1.push({bits: 32 - idx});
+  }
+
+  const lanes =
+    (cellWidth < (width >> 5)) ? 1 :
+    (cellWidth < (width >> 4)) ? 2 :
+    (cellWidth < (width >> 3)) ? 4 : 8;
+  return bitField.render(p1, {hspace: width, lanes: lanes, vspace: 60});
+};
 
 const csrTable = props => {
-  const head = ['tr', ['th', 'Bits'], ['th', 'Name'], ['th', 'Description']];
-  let lsb = 0;
-  props.map(row => {
-    row.lsb = lsb;
-    row.msb = lsb + row.bits - 1;
-    lsb += row.bits;
-    return row;
-  });
+  const head = ['tr', ['th', 'Bits'], ['th', 'Name'], ['th', 'Attr'], ['th', 'Description'], ['th', 'Reset']];
   const rows = props.map(row => ['tr',
-    ['td', (row.msb == row.lsb) ? row.lsb : (row.msb + ':' + row.lsb)],
+    ['td', (row.bitWidth === 1) ? row.bitOffset : ((row.bitOffset + row.bitWidth - 1) + ':' + row.bitOffset)],
     ['td', row.name || '---'],
-    ['td', row.desc || '---']
+    ['td', row.attr],
+    ['td', row.description || row.desc || '---'],
+    ['td', (row.resetValue === undefined) ? '-' : row.resetValue]
+  ]);
+  return ['table'].concat([head]).concat(rows);
+};
+
+const abTable = registers => {
+  const head = ['tr', ['th', 'Offset'], ['th', 'Name'], ['th', 'Description'], ['th', 'Reset']];
+  const rows = registers.map(reg => ['tr',
+    ['td', hex(reg.addressOffset)],
+    ['td', reg.name ? ['a', {href: '#' + reg.name}, reg.name] : '---'],
+    ['td', reg.description || ''],
+    ['td', hex(reg.resetValue)]
   ]);
   return ['table'].concat([head]).concat(rows);
 };
@@ -162,27 +321,56 @@ const csrTable = props => {
 const render = comp => {
   comp = comp || {};
   const memoryMaps = comp.memoryMaps || [];
-  return ['div'].concat(memoryMaps.map(mm =>
-    ['div', {}, mm.name].concat(
-      (mm.addressBlocks || []).map(ab =>
-        ['div', {}, ab.name].concat(
-          (ab.registers || []).map(reg =>
-            ['div', {},
-              ['h3', {}, reg.displayName],
-              bitField.render(reg.fields, {hspace: 1024}),
-              csrTable(reg.fields),
-              ['div'].concat((reg.notes || []).map(note => ['div', note]))
+  if (memoryMaps.length === 0) {
+    return;
+  }
+  return ['div', ['h2', 'Memory Maps']].concat(memoryMaps.map(mm =>
+    ['div']
+      .concat(mm.name && [['h3', {}, mm.name]])
+      .concat((mm.addressBlocks || []).map(ab =>
+        ['div', ['h4', ab.name],
+          ['div', ['b', 'Base: '], hex(ab.baseAddress)],
+          ['div', ['b', 'Range: '], hex(ab.range)],
+          ['div', ab.description || '']
+        ]
+          .concat([abTable(ab.registers)])
+          .concat((ab.registers || []).map(reg =>
+            ['div',
+              ['h5', {id: reg.name}, reg.name],
+              ['div', ['b', 'Offset: '], hex(reg.addressOffset)],
+              ['div', ['b', 'Reset: '], hex(reg.resetValue)],
+              ['div', reg.description || ''],
+              csrDisgram(reg.fields),
+              csrTable(reg.fields)
             ]
-          )
-        )
-      )
-    )
+          ))
+      ))
   ));
 };
 
 module.exports = render;
 
-},{"bit-field":47}],4:[function(require,module,exports){
+},{"./Roboto.js":1,"bit-field":50}],6:[function(require,module,exports){
+'use strict';
+
+const $ = require('./backpack.js');
+
+module.exports = function (comp) {
+  const model = comp.model || {};
+  const ports = model.ports || {};
+  return ['div',
+    ['h2', 'Symbol Diagram'],
+    $.svg(
+      $.top([
+        $.left(),
+        $.text(comp.name),
+        $.left()
+      ])
+    )
+  ];
+};
+
+},{"./backpack.js":2}],7:[function(require,module,exports){
 'use strict';
 
 module.exports = comp =>
@@ -193,12 +381,13 @@ module.exports = comp =>
     ['div', comp.version]
   ];
 
-},{}],5:[function(require,module,exports){
+},{}],8:[function(require,module,exports){
 'use strict';
 
 module.exports = () => ['span', ['style', `
 body {
   font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 16px;
   hyphens: auto;
 }
 table {
@@ -214,12 +403,34 @@ th,td {
 .warning { color: hsl(30, 100%, 50%); }
 .info { color: blue; }
 
+a {
+  color: #003262;
+}
+
+@media screen {
+  .container {
+    max-width: 968px;
+    margin: 0 auto;
+  }
+}
+@media print {
+  table {
+    page-break-inside: avoid;
+  }
+  a {
+    text-decoration-line: none;
+  }
+  body {
+    font-size: 14pt;
+  }
+
+}
 `], ['link', {
   href: 'https://fonts.googleapis.com/css?family=IBM+Plex+Sans',
   rel: 'stylesheet'
 }]];
 
-},{}],6:[function(require,module,exports){
+},{}],9:[function(require,module,exports){
 'use strict';
 
 var compileSchema = require('./compile')
@@ -718,7 +929,7 @@ function setLogger(self) {
 
 function noop() {}
 
-},{"./cache":7,"./compile":11,"./compile/async":8,"./compile/error_classes":9,"./compile/formats":10,"./compile/resolve":12,"./compile/rules":13,"./compile/schema_obj":14,"./compile/util":16,"./data":17,"./keyword":44,"./refs/data.json":45,"./refs/json-schema-draft-07.json":46,"fast-json-stable-stringify":59}],7:[function(require,module,exports){
+},{"./cache":10,"./compile":14,"./compile/async":11,"./compile/error_classes":12,"./compile/formats":13,"./compile/resolve":15,"./compile/rules":16,"./compile/schema_obj":17,"./compile/util":19,"./data":20,"./keyword":47,"./refs/data.json":48,"./refs/json-schema-draft-07.json":49,"fast-json-stable-stringify":62}],10:[function(require,module,exports){
 'use strict';
 
 
@@ -746,7 +957,7 @@ Cache.prototype.clear = function Cache_clear() {
   this._cache = {};
 };
 
-},{}],8:[function(require,module,exports){
+},{}],11:[function(require,module,exports){
 'use strict';
 
 var MissingRefError = require('./error_classes').MissingRef;
@@ -838,7 +1049,7 @@ function compileAsync(schema, meta, callback) {
   }
 }
 
-},{"./error_classes":9}],9:[function(require,module,exports){
+},{"./error_classes":12}],12:[function(require,module,exports){
 'use strict';
 
 var resolve = require('./resolve');
@@ -874,7 +1085,7 @@ function errorSubclass(Subclass) {
   return Subclass;
 }
 
-},{"./resolve":12}],10:[function(require,module,exports){
+},{"./resolve":15}],13:[function(require,module,exports){
 'use strict';
 
 var util = require('./util');
@@ -1025,7 +1236,7 @@ function regex(str) {
   }
 }
 
-},{"./util":16}],11:[function(require,module,exports){
+},{"./util":19}],14:[function(require,module,exports){
 'use strict';
 
 var resolve = require('./resolve')
@@ -1414,7 +1625,7 @@ function vars(arr, statement) {
   return code;
 }
 
-},{"../dotjs/validate":43,"./error_classes":9,"./resolve":12,"./util":16,"fast-deep-equal":58,"fast-json-stable-stringify":59}],12:[function(require,module,exports){
+},{"../dotjs/validate":46,"./error_classes":12,"./resolve":15,"./util":19,"fast-deep-equal":61,"fast-json-stable-stringify":62}],15:[function(require,module,exports){
 'use strict';
 
 var URI = require('uri-js')
@@ -1686,7 +1897,7 @@ function resolveIds(schema) {
   return localRefs;
 }
 
-},{"./schema_obj":14,"./util":16,"fast-deep-equal":58,"json-schema-traverse":81,"uri-js":299}],13:[function(require,module,exports){
+},{"./schema_obj":17,"./util":19,"fast-deep-equal":61,"json-schema-traverse":84,"uri-js":302}],16:[function(require,module,exports){
 'use strict';
 
 var ruleModules = require('../dotjs')
@@ -1754,7 +1965,7 @@ module.exports = function rules() {
   return RULES;
 };
 
-},{"../dotjs":32,"./util":16}],14:[function(require,module,exports){
+},{"../dotjs":35,"./util":19}],17:[function(require,module,exports){
 'use strict';
 
 var util = require('./util');
@@ -1765,7 +1976,7 @@ function SchemaObject(obj) {
   util.copy(obj, this);
 }
 
-},{"./util":16}],15:[function(require,module,exports){
+},{"./util":19}],18:[function(require,module,exports){
 'use strict';
 
 // https://mathiasbynens.be/notes/javascript-encoding
@@ -1787,7 +1998,7 @@ module.exports = function ucs2length(str) {
   return length;
 };
 
-},{}],16:[function(require,module,exports){
+},{}],19:[function(require,module,exports){
 'use strict';
 
 
@@ -2063,7 +2274,7 @@ function unescapeJsonPointer(str) {
   return str.replace(/~1/g, '/').replace(/~0/g, '~');
 }
 
-},{"./ucs2length":15,"fast-deep-equal":58}],17:[function(require,module,exports){
+},{"./ucs2length":18,"fast-deep-equal":61}],20:[function(require,module,exports){
 'use strict';
 
 var KEYWORDS = [
@@ -2114,7 +2325,7 @@ module.exports = function (metaSchema, keywordsJsonPointers) {
   return metaSchema;
 };
 
-},{}],18:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 'use strict';
 module.exports = function generate__limit(it, $keyword, $ruleType) {
   var out = ' ';
@@ -2273,7 +2484,7 @@ module.exports = function generate__limit(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],19:[function(require,module,exports){
+},{}],22:[function(require,module,exports){
 'use strict';
 module.exports = function generate__limitItems(it, $keyword, $ruleType) {
   var out = ' ';
@@ -2352,7 +2563,7 @@ module.exports = function generate__limitItems(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],20:[function(require,module,exports){
+},{}],23:[function(require,module,exports){
 'use strict';
 module.exports = function generate__limitLength(it, $keyword, $ruleType) {
   var out = ' ';
@@ -2436,7 +2647,7 @@ module.exports = function generate__limitLength(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],21:[function(require,module,exports){
+},{}],24:[function(require,module,exports){
 'use strict';
 module.exports = function generate__limitProperties(it, $keyword, $ruleType) {
   var out = ' ';
@@ -2515,7 +2726,7 @@ module.exports = function generate__limitProperties(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],22:[function(require,module,exports){
+},{}],25:[function(require,module,exports){
 'use strict';
 module.exports = function generate_allOf(it, $keyword, $ruleType) {
   var out = ' ';
@@ -2560,7 +2771,7 @@ module.exports = function generate_allOf(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],23:[function(require,module,exports){
+},{}],26:[function(require,module,exports){
 'use strict';
 module.exports = function generate_anyOf(it, $keyword, $ruleType) {
   var out = ' ';
@@ -2636,7 +2847,7 @@ module.exports = function generate_anyOf(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],24:[function(require,module,exports){
+},{}],27:[function(require,module,exports){
 'use strict';
 module.exports = function generate_comment(it, $keyword, $ruleType) {
   var out = ' ';
@@ -2652,7 +2863,7 @@ module.exports = function generate_comment(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],25:[function(require,module,exports){
+},{}],28:[function(require,module,exports){
 'use strict';
 module.exports = function generate_const(it, $keyword, $ruleType) {
   var out = ' ';
@@ -2710,7 +2921,7 @@ module.exports = function generate_const(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],26:[function(require,module,exports){
+},{}],29:[function(require,module,exports){
 'use strict';
 module.exports = function generate_contains(it, $keyword, $ruleType) {
   var out = ' ';
@@ -2794,7 +3005,7 @@ module.exports = function generate_contains(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],27:[function(require,module,exports){
+},{}],30:[function(require,module,exports){
 'use strict';
 module.exports = function generate_custom(it, $keyword, $ruleType) {
   var out = ' ';
@@ -3024,7 +3235,7 @@ module.exports = function generate_custom(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],28:[function(require,module,exports){
+},{}],31:[function(require,module,exports){
 'use strict';
 module.exports = function generate_dependencies(it, $keyword, $ruleType) {
   var out = ' ';
@@ -3194,7 +3405,7 @@ module.exports = function generate_dependencies(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],29:[function(require,module,exports){
+},{}],32:[function(require,module,exports){
 'use strict';
 module.exports = function generate_enum(it, $keyword, $ruleType) {
   var out = ' ';
@@ -3262,7 +3473,7 @@ module.exports = function generate_enum(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],30:[function(require,module,exports){
+},{}],33:[function(require,module,exports){
 'use strict';
 module.exports = function generate_format(it, $keyword, $ruleType) {
   var out = ' ';
@@ -3414,7 +3625,7 @@ module.exports = function generate_format(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],31:[function(require,module,exports){
+},{}],34:[function(require,module,exports){
 'use strict';
 module.exports = function generate_if(it, $keyword, $ruleType) {
   var out = ' ';
@@ -3520,7 +3731,7 @@ module.exports = function generate_if(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],32:[function(require,module,exports){
+},{}],35:[function(require,module,exports){
 'use strict';
 
 //all requires must be explicit because browserify won't work with dynamic requires
@@ -3555,7 +3766,7 @@ module.exports = {
   validate: require('./validate')
 };
 
-},{"./_limit":18,"./_limitItems":19,"./_limitLength":20,"./_limitProperties":21,"./allOf":22,"./anyOf":23,"./comment":24,"./const":25,"./contains":26,"./dependencies":28,"./enum":29,"./format":30,"./if":31,"./items":33,"./multipleOf":34,"./not":35,"./oneOf":36,"./pattern":37,"./properties":38,"./propertyNames":39,"./ref":40,"./required":41,"./uniqueItems":42,"./validate":43}],33:[function(require,module,exports){
+},{"./_limit":21,"./_limitItems":22,"./_limitLength":23,"./_limitProperties":24,"./allOf":25,"./anyOf":26,"./comment":27,"./const":28,"./contains":29,"./dependencies":31,"./enum":32,"./format":33,"./if":34,"./items":36,"./multipleOf":37,"./not":38,"./oneOf":39,"./pattern":40,"./properties":41,"./propertyNames":42,"./ref":43,"./required":44,"./uniqueItems":45,"./validate":46}],36:[function(require,module,exports){
 'use strict';
 module.exports = function generate_items(it, $keyword, $ruleType) {
   var out = ' ';
@@ -3698,7 +3909,7 @@ module.exports = function generate_items(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],34:[function(require,module,exports){
+},{}],37:[function(require,module,exports){
 'use strict';
 module.exports = function generate_multipleOf(it, $keyword, $ruleType) {
   var out = ' ';
@@ -3777,7 +3988,7 @@ module.exports = function generate_multipleOf(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],35:[function(require,module,exports){
+},{}],38:[function(require,module,exports){
 'use strict';
 module.exports = function generate_not(it, $keyword, $ruleType) {
   var out = ' ';
@@ -3863,7 +4074,7 @@ module.exports = function generate_not(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],36:[function(require,module,exports){
+},{}],39:[function(require,module,exports){
 'use strict';
 module.exports = function generate_oneOf(it, $keyword, $ruleType) {
   var out = ' ';
@@ -3938,7 +4149,7 @@ module.exports = function generate_oneOf(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],37:[function(require,module,exports){
+},{}],40:[function(require,module,exports){
 'use strict';
 module.exports = function generate_pattern(it, $keyword, $ruleType) {
   var out = ' ';
@@ -4015,7 +4226,7 @@ module.exports = function generate_pattern(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],38:[function(require,module,exports){
+},{}],41:[function(require,module,exports){
 'use strict';
 module.exports = function generate_properties(it, $keyword, $ruleType) {
   var out = ' ';
@@ -4347,7 +4558,7 @@ module.exports = function generate_properties(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],39:[function(require,module,exports){
+},{}],42:[function(require,module,exports){
 'use strict';
 module.exports = function generate_propertyNames(it, $keyword, $ruleType) {
   var out = ' ';
@@ -4431,7 +4642,7 @@ module.exports = function generate_propertyNames(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],40:[function(require,module,exports){
+},{}],43:[function(require,module,exports){
 'use strict';
 module.exports = function generate_ref(it, $keyword, $ruleType) {
   var out = ' ';
@@ -4557,7 +4768,7 @@ module.exports = function generate_ref(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],41:[function(require,module,exports){
+},{}],44:[function(require,module,exports){
 'use strict';
 module.exports = function generate_required(it, $keyword, $ruleType) {
   var out = ' ';
@@ -4829,7 +5040,7 @@ module.exports = function generate_required(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],42:[function(require,module,exports){
+},{}],45:[function(require,module,exports){
 'use strict';
 module.exports = function generate_uniqueItems(it, $keyword, $ruleType) {
   var out = ' ';
@@ -4917,7 +5128,7 @@ module.exports = function generate_uniqueItems(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],43:[function(require,module,exports){
+},{}],46:[function(require,module,exports){
 'use strict';
 module.exports = function generate_validate(it, $keyword, $ruleType) {
   var out = '';
@@ -5413,7 +5624,7 @@ module.exports = function generate_validate(it, $keyword, $ruleType) {
   return out;
 }
 
-},{}],44:[function(require,module,exports){
+},{}],47:[function(require,module,exports){
 'use strict';
 
 var IDENTIFIER = /^[a-z_$][a-z0-9_$-]*$/i;
@@ -5593,7 +5804,7 @@ function validateKeyword(definition, throwError) {
     return false;
 }
 
-},{"./dotjs/custom":27,"./refs/json-schema-draft-07.json":46}],45:[function(require,module,exports){
+},{"./dotjs/custom":30,"./refs/json-schema-draft-07.json":49}],48:[function(require,module,exports){
 module.exports={
     "$schema": "http://json-schema.org/draft-07/schema#",
     "$id": "https://raw.githubusercontent.com/epoberezkin/ajv/master/lib/refs/data.json#",
@@ -5612,7 +5823,7 @@ module.exports={
     "additionalProperties": false
 }
 
-},{}],46:[function(require,module,exports){
+},{}],49:[function(require,module,exports){
 module.exports={
     "$schema": "http://json-schema.org/draft-07/schema#",
     "$id": "http://json-schema.org/draft-07/schema#",
@@ -5782,14 +5993,14 @@ module.exports={
     "default": true
 }
 
-},{}],47:[function(require,module,exports){
+},{}],50:[function(require,module,exports){
 'use strict';
 
 var render = require('./render');
 
 exports.render = render;
 
-},{"./render":48}],48:[function(require,module,exports){
+},{"./render":51}],51:[function(require,module,exports){
 'use strict';
 
 var tspan = require('tspan');
@@ -6027,7 +6238,7 @@ function render (desc, opt) {
 
 module.exports = render;
 
-},{"tspan":296}],49:[function(require,module,exports){
+},{"tspan":299}],52:[function(require,module,exports){
 
 /**
  * Expose `Emitter`.
@@ -6204,319 +6415,12 @@ Emitter.prototype.hasListeners = function(event){
   return !! this.listeners(event).length;
 };
 
-},{}],50:[function(require,module,exports){
+},{}],53:[function(require,module,exports){
 'use strict';
 
 const xassign = p => obj =>
   Object.assign(p.reduce((res, cur) =>
     res[cur] || (res[cur] = {}), exports), obj);
-
-xassign(['amba.com', 'AMBA3', 'AHBLite', 'r2p0_0'])(
-{
-  abstractionDefinition: {
-    vendor: 'amba.com',
-    library: 'AMBA3',
-    name: 'AHBLite_rtl',
-    version: 'r2p0_0',
-    busType: {
-      vendor: 'amba.com',
-      library: 'AMBA3',
-      name: 'AHBLite',
-      version: 'r2p0_0',
-    },
-    ports: {
-      HCLK: {
-        description: 'The bus clock times all bus transfers. All signal timings are related to the rising edge of HCLK.',
-        wire: {
-          isClock: true,
-          onMaster: {
-            presence: 'optional',
-            width: 1,
-            direction: 'in',
-          },
-          onSlave: {
-            presence: 'optional',
-            width: 1,
-            direction: 'in',
-          },
-          requiresDriver: true,
-        },
-      },
-      HRESETn: {
-        description: 'The bus reset signal is active LOW and resets the system and the bus. This is the only active LOW AHB-Lite signal.',
-        wire: {
-          isReset: true,
-          onMaster: {
-            presence: 'optional',
-            width: 1,
-            direction: 'in',
-          },
-          onSlave: {
-            presence: 'optional',
-            width: 1,
-            direction: 'in',
-          },
-          requiresDriver: true,
-        },
-      },
-      HADDR: {
-        description: 'The 32-bit system address bus, but the width is variable',
-        wire: {
-          isAddress: true,
-          onMaster: {
-            presence: 'required',
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'required',
-            direction: 'in',
-          },
-          defaultValue: 0,
-        },
-      },
-      HBURST: {
-        description: 'The burst type indicates if the transfer is a single transfer or forms part of a burst.Fixed length bursts of 4, 8, and 16 beats are supported. The burst can be incrementing or wrapping. Incrementing bursts of undefined length are also supported.',
-        wire: {
-          onMaster: {
-            presence: 'required',
-            width: 3,
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'required',
-            width: 3,
-            direction: 'in',
-          },
-        },
-      },
-      HMASTLOCK: {
-        description: 'When HIGH, this signal indicates that the current transfer is part of a locked sequence. It has the same timing as the address and control signals.',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            width: 1,
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'optional',
-            width: 1,
-            direction: 'in',
-          },
-          defaultValue: 0,
-        },
-      },
-      HPROT: {
-        description: 'The protection control signals provide additional information about a bus access and are primarily intended for use by any module that wants to implement some level of protection.\nThe signals indicate if the transfer is an opcode fetch or data access, and if the transfer is a privileged mode access or user mode access. For masters with a memory management unit these signals also indicate whether the current access is cacheable or bufferable.',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            width: 4,
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'optional',
-            width: 4,
-            direction: 'in',
-          },
-          defaultValue: 0,
-        },
-      },
-      HSIZE: {
-        description: 'Indicates the size of the transfer, that is typically byte, halfword, or word. The protocol allows for larger transfer sizes up to a maximum of 1024 bits.',
-        wire: {
-          onMaster: {
-            presence: 'required',
-            width: 3,
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'required',
-            width: 3,
-            direction: 'in',
-          },
-        },
-      },
-      HTRANS: {
-        description: 'Indicates the transfer type of the current transfer. This can be:\n1-IDLE\n2- BUSY\n3- NONSEQUENTIAL\n4- SEQUENTIAL',
-        wire: {
-          onMaster: {
-            presence: 'required',
-            width: 2,
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'required',
-            width: 2,
-            direction: 'in',
-          },
-        },
-      },
-      HWDATA: {
-        description: 'The write data bus transfers data from the master to the slaves during write operations. A minimum data bus width of 32 bits is recommended. However, this can be extended to enable higher bandwidth operation.',
-        wire: {
-          isData: true,
-          onMaster: {
-            presence: 'required',
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'required',
-            direction: 'in',
-          },
-          defaultValue: 0,
-        },
-      },
-      HWRITE: {
-        description: 'Indicates the transfer direction. When HIGH this signal indicates a write transfer and when LOW a read transfer. It has the same timing as the address signals, however, it must remain constant throughout a burst transfer.',
-        wire: {
-          onMaster: {
-            presence: 'required',
-            width: 1,
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'required',
-            width: 1,
-            direction: 'in',
-          },
-        },
-      },
-      HRDATA: {
-        description: 'During read operations, the read data bus transfers data from the selected slave to the multiplexor. The multiplexor then transfers the data to the master. A minimum data bus width of 32 bits is recommended. However, this can be extended to enable higher bandwidth operation.',
-        wire: {
-          isData: true,
-          onMaster: {
-            presence: 'required',
-            direction: 'in',
-          },
-          onSlave: {
-            presence: 'required',
-            direction: 'out',
-          },
-          defaultValue: 0,
-        },
-      },
-      HREADYOUT: {
-        description: 'When HIGH, the HREADYOUT signal indicates that a transfer has finished on the bus. This signal can be driven LOW to extend a transfer.',
-        wire: {
-          onMaster: {
-            presence: 'illegal',
-          },
-          onSlave: {
-            presence: 'required',
-            width: 1,
-            direction: 'out',
-          },
-        },
-      },
-      HRESP: {
-        description: 'The transfer response, after passing through the multiplexor, provides the master with additional information on the status of a transfer.\nWhen LOW, the HRESP signal indicates that the transfer status is OKAY.\nWhen HIGH, the HRESP signal indicates that the transfer status is ERROR.',
-        wire: {
-          onMaster: {
-            presence: 'required',
-            width: 1,
-            direction: 'in',
-          },
-          onSlave: {
-            presence: 'required',
-            width: 1,
-            direction: 'out',
-          },
-        },
-      },
-      HSELx: {
-        description: 'Each AHB-Lite slave has its own slave select signal HSELx and this signal indicates that the current transfer is intended for the selected slave. When the slave is initially selected, it must also monitor the status of HREADY to ensure that the previous bus transfer has completed,before it responds to the current transfer.\nThe HSELx signal is a combinatorial decode of the address bus.',
-        wire: {
-          onMaster: {
-            presence: 'illegal',
-          },
-          onSlave: {
-            presence: 'required',
-            width: 1,
-            direction: 'in',
-          },
-        },
-      },
-      HREADY: {
-        description: 'The transfer response, after passing through the multiplexor, provides the master with additional information on the status of a transfer.\nWhen LOW, the HRESP signal indicates that the transfer status is OKAY.\nWhen HIGH, the HRESP signal indicates that the transfer status is ERROR.',
-        wire: {
-          onMaster: {
-            presence: 'required',
-            width: 1,
-            direction: 'in',
-          },
-          onSlave: {
-            presence: 'required',
-            width: 1,
-            direction: 'in',
-          },
-        },
-      },
-      HCLKEN: {
-        description: 'This is an optional enable signal for HCLK domain',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            width: 1,
-            direction: 'in',
-          },
-          onSlave: {
-            presence: 'optional',
-            width: 1,
-            direction: 'in',
-          },
-          defaultValue: 1,
-        },
-        vendorExtensions: [],
-      },
-      HRUSER: {
-        description: 'This is an optional read channel user signal that is not part of the official specification. The use is user specific.',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            direction: 'in',
-          },
-          onSlave: {
-            presence: 'optional',
-            direction: 'out',
-          },
-          defaultValue: 0,
-        },
-      },
-      HWUSER: {
-        description: 'This is an optional write channel user signal that is not part of the official specification. The use is user specific.',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'optional',
-            direction: 'in',
-          },
-          defaultValue: 0,
-        },
-      },
-      HAUSER: {
-        description: 'This is an optional user signal that is not part of the official specification. The use is user specific.',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'optional',
-            direction: 'in',
-          },
-          defaultValue: 0,
-        },
-      },
-    },
-    description: 'The current file describes the RTL view of an AHBLite interface',
-    vendorExtensions: [],
-  },
-}
-);
 
 xassign(['amba.com', 'AMBA4', 'APB4', 'r0p0_0'])(
 {
@@ -6581,8 +6485,8 @@ xassign(['amba.com', 'AMBA4', 'APB4', 'r0p0_0'])(
         },
         vendorExtensions: [],
       },
-      PSELx: {
-        description: 'Select - The APB bridge unit generates this signal to each peripheral bus slave. It indicates that the slave device is selected and that a data transfer is required.There is a PSELx signal for each slave.',
+      PSEL: {
+        description: 'Select - The APB bridge unit generates this signal to each peripheral bus slave. It indicates that the slave device is selected and that a data transfer is required.There is a PSEL signal for each slave.',
         wire: {
           onMaster: {
             presence: 'required',
@@ -6744,80 +6648,208 @@ xassign(['amba.com', 'AMBA4', 'APB4', 'r0p0_0'])(
 }
 );
 
-xassign(['sifive.com', 'MEM', 'SPRAM', '0.1.0'])(
+xassign(['amba.com', 'AMBA4', 'AXI4Stream', 'r0p0_1'])(
 {
   abstractionDefinition: {
-    vendor: 'sifive.com',
-    library: 'MEM',
-    name: 'SPRAM_rtl',
-    version: '0.1.0',
+    vendor: 'amba.com',
+    library: 'AMBA4',
+    name: 'AXI4Stream_rtl',
+    version: 'r0p0_1',
     busType: {
-      vendor: 'sifive.com',
-      library: 'MEM',
-      name: 'SPRAM',
-      version: '0.1.0',
+      vendor: 'amba.com',
+      library: 'AMBA4',
+      name: 'AXI4Stream',
+      version: 'r0p0_1',
     },
     ports: {
-      CLK: {
-        description: 'Memory clock',
-        requiresDriver: true,
-        isClock: true,
+      ACLK: {
+        description: 'Global clock signal. All signals are sampled on the rising edge of the global clock',
         wire: {
-          onMaster: {width: 1, direction: 'in', presence: 'optional'},
-          onSlave:  {width: 1, direction: 'in', presence: 'optional'}
-        }
+          isClock: true,
+          onMaster: {
+            presence: 'optional',
+            width: 1,
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'optional',
+            width: 1,
+            direction: 'in',
+          },
+          requiresDriver: true,
+        },
       },
-      WREN: {
-        description: 'Write enable',
+      ACLKEN: {
+        description: 'Clock enable signal. Used as a qualifier for the ACLK signal',
         wire: {
-          onMaster: {width: 1, direction: 'out', presence: 'required'},
-          onSlave:  {width: 1, direction: 'in', presence: 'required'}
-        }
+          onMaster: {
+            presence: 'optional',
+            width: 1,
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'optional',
+            width: 1,
+            direction: 'in',
+          },
+          defaultValue: 1,
+        },
+        vendorExtensions: [],
       },
-      RDEN: {
-        description: 'Read enable',
+      ARESETn: {
+        description: 'Global reset signal. This signal is active LOW',
         wire: {
-          onMaster: {width: 1, direction: 'out', presence: 'required'},
-          onSlave:  {width: 1, direction: 'in', presence: 'required'}
-        }
+          isReset: true,
+          onMaster: {
+            presence: 'optional',
+            width: 1,
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'optional',
+            width: 1,
+            direction: 'in',
+          },
+          requiresDriver: true,
+        },
       },
-      BEN: {
-        description: 'Byte enable',
+      TVALID: {
+        description: 'This signal indicates that the master is driving a valid transfer. A transfer takes place when both TVALID and TREADY are asserted.',
         wire: {
-          onMaster: {width: 'BEN_WIDTH', direction: 'out', presence: 'optional'},
-          onSlave:  {width: 'BEN_WIDTH', direction: 'in', presence: 'optional'}
-        }
+          onMaster: {
+            presence: 'required',
+            width: 1,
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'required',
+            width: 1,
+            direction: 'in',
+          },
+        },
       },
-      ADDR: {
-        description: 'Read / Write port address',
+      TREADY: {
+        description: 'This signal indicates that the slave can accept  a transfer in the current cycle.',
         wire: {
-          onMaster: {width: 'ADDR_WIDTH', direction: 'out', presence: 'required'},
-          onSlave:  {width: 'ADDR_WIDTH', direction: 'in', presence: 'required'}
-        }
+          onMaster: {
+            presence: 'optional',
+            width: 1,
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'optional',
+            width: 1,
+            direction: 'out',
+          },
+          defaultValue: 1,
+        },
       },
-      WRDATA: {
-        description: 'Write port data',
+      TDATA: {
+        description: 'This bus is the primary payload that is used to provide the data that is passing across the interface. The width of the data payload is an integer number of bytes.',
         wire: {
-          onMaster: {width: 'DATA_WIDTH', direction: 'out', presence: 'required'},
-          onSlave:  {width: 'DATA_WIDTH', direction: 'in', presence: 'required'}
-        }
+          isData: true,
+          onMaster: {
+            presence: 'optional',
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'optional',
+            direction: 'in',
+          },
+          defaultValue: 0,
+        },
       },
-      RDDATA: {
-        description: 'Read port data',
+      TSTRB: {
+        description: 'TSTRB is the byte qualifier that indicates whether the content of the associated byte of TDATA is processed as a data byte of position byte. \n            When TSTRB is absent and TKEEP is present, TSTRB defaults to TKEEP.',
         wire: {
-          onMaster: {width: 'DATA_WIDTH', direction: 'in', presence: 'required'},
-          onSlave:  {width: 'DATA_WIDTH', direction: 'out', presence: 'required'}
-        }
+          onMaster: {
+            presence: 'optional',
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'optional',
+            direction: 'in',
+          },
+        },
+        vendorExtensions: [],
       },
-      RDERR: {
-        description: 'If ECC feature is present, this signals that an undorrectable error was detected on the read data',
+      TKEEP: {
+        description: 'TKEEP is the byte qualifier that indicates whether the content of the associated byte of TDATA is processed as a data stream. Associated bytes that have the TKEEP byte qualifier deasserted are null bytes and can be removed from the data stream. ',
         wire: {
-          onMaster: {direction: 'in', presence: 'optional'},
-          onSlave:  {direction: 'out', presence: 'optional'}
-        }
-      }
-    }
-  }
+          onMaster: {
+            presence: 'optional',
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'optional',
+            direction: 'in',
+          },
+        },
+        vendorExtensions: [],
+      },
+      TLAST: {
+        description: 'This signal indicates the boundary of a packet.',
+        wire: {
+          onMaster: {
+            presence: 'optional',
+            width: 1,
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'optional',
+            width: 1,
+            direction: 'in',
+          },
+          defaultValue: 1,
+        },
+      },
+      TID: {
+        description: 'This is used as data stream identifier that indicates different streams of data.',
+        wire: {
+          onMaster: {
+            presence: 'optional',
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'optional',
+            direction: 'in',
+          },
+          defaultValue: 0,
+        },
+      },
+      TDEST: {
+        description: 'This signal provides routing information for the data stream.',
+        wire: {
+          onMaster: {
+            presence: 'optional',
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'optional',
+            direction: 'in',
+          },
+          defaultValue: 0,
+        },
+      },
+      TUSER: {
+        description: 'TUSER is user defined sideband information that can be transmitted alongside the data stream.',
+        isUser: true,
+        wire: {
+          onMaster: {
+            presence: 'optional',
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'optional',
+            direction: 'in',
+          },
+          defaultValue: 0,
+        },
+      },
+    },
+    description: 'AMBA AXI4-Stream Protocol Specification v1.0',
+    vendorExtensions: [],
+  },
 }
 );
 
@@ -7294,6 +7326,613 @@ xassign(['intel.com', 'PHY', 'PIPE', '4.4.0'])(
        },
     },
   },
+}
+);
+
+xassign(['amba.com', 'AMBA4', 'AXI4-Lite', 'r0p0_0'])(
+{
+  abstractionDefinition: {
+    vendor: 'amba.com',
+    library: 'AMBA4',
+    name: 'AXI4-Lite_rtl',
+    version: 'r0p0_0',
+    busType: {
+      vendor: 'amba.com',
+      library: 'AMBA4',
+      name: 'AXI4-Lite',
+      version: 'r0p0_0',
+    },
+    ports: {
+      ACLK: {
+        description: 'Global clock signal. All signals are sampled on the rising edge of the global clock',
+        wire: {
+          isClock: true,
+          onMaster: {
+            presence: 'optional',
+            width: 1,
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'optional',
+            width: 1,
+            direction: 'in',
+          },
+          requiresDriver: true,
+        },
+      },
+      ACLKEN: {
+        description: 'Clock enable signal. Used as a qualifier for the ACLK signal. This signal indicates which rising edges of ACLK should be acted upon: 1 = valid rising edge of ACLK, 0 = any rising edge of ACLK should be ignored and no bus-state altered.',
+        wire: {
+          onMaster: {
+            presence: 'optional',
+            width: 1,
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'optional',
+            width: 1,
+            direction: 'in',
+          },
+          defaultValue: 1,
+        },
+        vendorExtensions: [],
+      },
+      ARESETn: {
+        description: 'Global reset signal. This signal is active LOW',
+        wire: {
+          isReset: true,
+          onMaster: {
+            presence: 'optional',
+            width: 1,
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'optional',
+            width: 1,
+            direction: 'in',
+          },
+          requiresDriver: true,
+        },
+      },
+      AWADDR: {
+        description: 'Write address. The write address bus gives the address of the first transfer in a write burst transaction. The associated control signals are used to determine the addresses of the remaining transfers in the burst.',
+        wire: {
+          isAddress: true,
+          onMaster: {
+            presence: 'required',
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'required',
+            direction: 'in',
+          },
+        },
+      },
+      AWPROT: {
+        description: 'Protection type. This signal indicates the normal, privileged, or secure protection level of the transaction and whether the transaction is a data access or an instruction access.',
+        wire: {
+          onMaster: {
+            presence: 'optional',
+            width: 3,
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'optional',
+            width: 3,
+            direction: 'in',
+          },
+        },
+      },
+      AWVALID: {
+        description: 'Write address valid. This signal indicates that valid write address and control information are available: 1 = address and control information available, 0 = address and control information not available. The address and control information remain stable until the address acknowledge signal, AWREADY, goes HIGH.',
+        wire: {
+          onMaster: {
+            presence: 'required',
+            width: 1,
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'required',
+            width: 1,
+            direction: 'in',
+          },
+        },
+      },
+      AWREADY: {
+        description: 'Write address ready. This signal indicates that the slave is ready to accept an address and associated control signals: 1 = slave ready, 0 = slave not ready.',
+        wire: {
+          onMaster: {
+            presence: 'required',
+            width: 1,
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'required',
+            width: 1,
+            direction: 'out',
+          },
+        },
+      },
+      WDATA: {
+        description: 'Write data. The write data bus can be 8, 16, 32, 64, 128, 256, 512, or 1024 bits wide',
+        wire: {
+          isData: true,
+          onMaster: {
+            presence: 'required',
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'required',
+            direction: 'in',
+          },
+        },
+        vendorExtensions: [],
+      },
+      WSTRB: {
+        description: 'Write strobes. This signal indicates which byte lanes to update in memory. There is one write strobe for each eight bits of the write data bus. ',
+        wire: {
+          onMaster: {
+            presence: 'optional',
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'required',
+            direction: 'in',
+          },
+          defaultValue: '0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF',
+        },
+      },
+      WVALID: {
+        description: 'Write valid. This signal indicates that valid write data and strobes are available: 1 = write data and strobes available, 0 = write data and strobes not available.',
+        wire: {
+          onMaster: {
+            presence: 'required',
+            width: 1,
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'required',
+            width: 1,
+            direction: 'in',
+          },
+        },
+      },
+      WREADY: {
+        description: 'Write ready. This signal indicates that the slave can accept the write data: 1 = slave ready, 0 = slave not ready.',
+        wire: {
+          onMaster: {
+            presence: 'required',
+            width: 1,
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'required',
+            width: 1,
+            direction: 'out',
+          },
+        },
+      },
+      BRESP: {
+        description: 'Write response. This signal indicates the status of the write transaction. The allowable responses are OKAY, EXOKAY, SLVERR, and DECERR.',
+        wire: {
+          onMaster: {
+            presence: 'optional',
+            width: 2,
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'optional',
+            width: 2,
+            direction: 'out',
+          },
+          defaultValue: 0,
+        },
+      },
+      BVALID: {
+        description: 'Write response valid. This signal indicates that a valid write response is available: 1 = write response available, 0 = write response not available.',
+        wire: {
+          onMaster: {
+            presence: 'required',
+            width: 1,
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'required',
+            width: 1,
+            direction: 'out',
+          },
+        },
+      },
+      BREADY: {
+        description: 'Response ready. This signal indicates that the master can accept the response information. 1 = master ready, 0 = master not ready.',
+        wire: {
+          onMaster: {
+            presence: 'required',
+            width: 1,
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'required',
+            width: 1,
+            direction: 'in',
+          },
+        },
+      },
+      ARADDR: {
+        description: 'Read address. The read address bus gives the initial address of a read burst transaction. Only the start address of the burst is provided and the control signals that are issued alongside the address detail how the address is calculated for the remaining transfers in the burst.',
+        wire: {
+          isAddress: true,
+          onMaster: {
+            presence: 'required',
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'required',
+            direction: 'in',
+          },
+          defaultValue: 0,
+        },
+      },
+      ARPROT: {
+        description: 'Protection type. This signal provides protection unit information for the transaction',
+        wire: {
+          onMaster: {
+            presence: 'optional',
+            width: 3,
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'optional',
+            width: 3,
+            direction: 'in',
+          },
+        },
+      },
+      ARVALID: {
+        description: 'Read address valid. This signal indicates, when HIGH, that the read address and control information is valid and will remain stable until the address acknowledge signal, ARREADY, is high.\n1 = address and control information valid, 0 = address and control information not valid.',
+        wire: {
+          onMaster: {
+            presence: 'required',
+            width: 1,
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'required',
+            width: 1,
+            direction: 'in',
+          },
+        },
+      },
+      ARREADY: {
+        description: 'Read address ready. This signal indicates that the slave is ready to accept an address and associated control signals: 1 = slave ready, 0 = slave not ready.',
+        wire: {
+          onMaster: {
+            presence: 'required',
+            width: 1,
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'required',
+            width: 1,
+            direction: 'out',
+          },
+        },
+      },
+      RDATA: {
+        description: 'Read data. The read data bus can be 8, 16, 32, 64, 128, 256, 512, or 1024 bits wide',
+        wire: {
+          isData: true,
+          onMaster: {
+            presence: 'required',
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'required',
+            direction: 'out',
+          },
+        },
+        vendorExtensions: [],
+      },
+      RRESP: {
+        description: 'Read response. This signal indicates the status of the read transfer. The allowable responses are OKAY, EXOKAY, SLVERR, and DECERR.',
+        wire: {
+          onMaster: {
+            presence: 'optional',
+            width: 2,
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'optional',
+            width: 2,
+            direction: 'out',
+          },
+          defaultValue: 0,
+        },
+      },
+      RVALID: {
+        description: 'Read valid. This signal indicates that the required read data is available and the read transfer can complete: 1 = read data available, 0 = read data not available.',
+        wire: {
+          onMaster: {
+            presence: 'required',
+            width: 1,
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'required',
+            width: 1,
+            direction: 'out',
+          },
+        },
+      },
+      RREADY: {
+        description: 'Read ready. This signal indicates that the master can accept the read data and response information: 1= master ready, 0 = master not ready.',
+        wire: {
+          onMaster: {
+            presence: 'required',
+            width: 1,
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'required',
+            width: 1,
+            direction: 'in',
+          },
+        },
+      },
+      AWUSER: {
+        description: 'Write Address User. This signal provides sideband signals on the write address channel which are valid at the same time as the other AW signals. Use of the AWUSER signal is implementation specific.',
+        isUser: true,
+        group: 'AW',
+        wire: {
+          onMaster: {
+            presence: 'optional',
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'optional',
+            direction: 'in',
+          },
+          defaultValue: 0,
+        },
+      },
+      WUSER: {
+        description: 'Write User. This signal provides sideband signals on the write channel which are valid at the same time as the other W signals. Use of the WUSER signal is implementation specific.',
+        isUser: true,
+        group: 'W',
+        wire: {
+          onMaster: {
+            presence: 'optional',
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'optional',
+            direction: 'in',
+          },
+          defaultValue: 0,
+        },
+      },
+      BUSER: {
+        description: 'Write Response User. This signal provides sideband signals on the write response channel which are valid at the same time as the other B signals. Use of the BUSER signal is implementation specific.',
+        isUser: true,
+        group: 'B',
+        wire: {
+          onMaster: {
+            presence: 'optional',
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'optional',
+            direction: 'out',
+          },
+          defaultValue: 0,
+        },
+      },
+      ARUSER: {
+        description: 'Read Address User. This signal provides sideband signals on the read address channel which are valid at the same time as the other AR signals. Use of the ARUSER signal is implementation specific.',
+        isUser: true,
+        group: 'AR',
+        wire: {
+          onMaster: {
+            presence: 'optional',
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'optional',
+            direction: 'in',
+          },
+          defaultValue: 0,
+        },
+      },
+      RUSER: {
+        description: 'Read User. This signal provides sideband signals on the read channel which are valid at the same time as the other R signals. Use of the RUSER signal is implementation specific.',
+        isUser: true,
+        group: 'R',
+        wire: {
+          onMaster: {
+            presence: 'optional',
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'optional',
+            direction: 'out',
+          },
+          defaultValue: 0,
+        },
+      },
+    },
+    description: 'This defines the signals when implementing an AXI4 interface on RTL views.',
+    vendorExtensions: [],
+  },
+}
+);
+
+xassign(['sifive.com', 'MEM', 'SPRAM', '0.1.0'])(
+{
+  abstractionDefinition: {
+    vendor: 'sifive.com',
+    library: 'MEM',
+    name: 'SPRAM_rtl',
+    version: '0.1.0',
+    busType: {
+      vendor: 'sifive.com',
+      library: 'MEM',
+      name: 'SPRAM',
+      version: '0.1.0',
+    },
+    ports: {
+      CLK: {
+        description: 'Memory clock',
+        requiresDriver: true,
+        isClock: true,
+        wire: {
+          onMaster: {width: 1, direction: 'in', presence: 'optional'},
+          onSlave:  {width: 1, direction: 'in', presence: 'optional'}
+        }
+      },
+      WREN: {
+        description: 'Write enable',
+        wire: {
+          onMaster: {width: 1, direction: 'out', presence: 'required'},
+          onSlave:  {width: 1, direction: 'in', presence: 'required'}
+        }
+      },
+      RDEN: {
+        description: 'Read enable',
+        wire: {
+          onMaster: {width: 1, direction: 'out', presence: 'required'},
+          onSlave:  {width: 1, direction: 'in', presence: 'required'}
+        }
+      },
+      BEN: {
+        description: 'Byte enable',
+        wire: {
+          onMaster: {width: 'BEN_WIDTH', direction: 'out', presence: 'optional'},
+          onSlave:  {width: 'BEN_WIDTH', direction: 'in', presence: 'optional'}
+        }
+      },
+      ADDR: {
+        description: 'Read / Write port address',
+        wire: {
+          onMaster: {width: 'ADDR_WIDTH', direction: 'out', presence: 'required'},
+          onSlave:  {width: 'ADDR_WIDTH', direction: 'in', presence: 'required'}
+        }
+      },
+      WRDATA: {
+        description: 'Write port data',
+        wire: {
+          onMaster: {width: 'DATA_WIDTH', direction: 'out', presence: 'required'},
+          onSlave:  {width: 'DATA_WIDTH', direction: 'in', presence: 'required'}
+        }
+      },
+      RDDATA: {
+        description: 'Read port data',
+        wire: {
+          onMaster: {width: 'DATA_WIDTH', direction: 'in', presence: 'required'},
+          onSlave:  {width: 'DATA_WIDTH', direction: 'out', presence: 'required'}
+        }
+      },
+      RDERR: {
+        description: 'If ECC feature is present, this signals that an undorrectable error was detected on the read data',
+        wire: {
+          onMaster: {direction: 'in', presence: 'optional'},
+          onSlave:  {direction: 'out', presence: 'optional'}
+        }
+      }
+    }
+  }
+}
+);
+
+xassign(['sifive.com', 'MEM', 'DPRAM', '0.1.0'])(
+{
+  abstractionDefinition: {
+    vendor: 'sifive.com',
+    library: 'MEM',
+    name: 'DPRAM_rtl',
+    version: '0.1.0',
+    busType: {
+      vendor: 'sifive.com',
+      library: 'MEM',
+      name: 'DPRAM',
+      version: '0.1.0',
+    },
+    ports: {
+      WRCLK: {
+        description: 'Write clock',
+        requiresDriver: true,
+        isClock: true,
+        wire: {
+          onMaster: {width: 1, direction: 'in', presence: 'optional'},
+          onSlave:  {width: 1, direction: 'in', presence: 'optional'}
+        }
+      },
+      RDCLK: {
+        description: 'Read clock',
+        requiresDriver: true,
+        isClock: true,
+        wire: {
+          onMaster: {width: 1, direction: 'in', presence: 'optional'},
+          onSlave:  {width: 1, direction: 'in', presence: 'optional'}
+        }
+      },
+      WREN: {
+        description: 'Write enable',
+        wire: {
+          onMaster: {width: 1, direction: 'out', presence: 'required'},
+          onSlave:  {width: 1, direction: 'in', presence: 'required'}
+        }
+      },
+      RDEN: {
+        description: 'Read enable',
+        wire: {
+          onMaster: {width: 1, direction: 'out', presence: 'required'},
+          onSlave:  {width: 1, direction: 'in', presence: 'required'}
+        }
+      },
+      BEN: {
+        description: 'Byte enable',
+        wire: {
+          onMaster: {width: 'BEN_WIDTH', direction: 'out', presence: 'optional'},
+          onSlave:  {width: 'BEN_WIDTH', direction: 'in', presence: 'optional'}
+        }
+      },
+      WRADDR: {
+        description: 'Write port address',
+        wire: {
+          onMaster: {width: 'ADDR_WIDTH', direction: 'out', presence: 'required'},
+          onSlave:  {width: 'ADDR_WIDTH', direction: 'in', presence: 'required'}
+        }
+      },
+      WRDATA: {
+        description: 'Write port data',
+        wire: {
+          onMaster: {width: 'DATA_WIDTH', direction: 'out', presence: 'required'},
+          onSlave:  {width: 'DATA_WIDTH', direction: 'in', presence: 'required'}
+        }
+      },
+      RDADDR: {
+        description: 'Read port address',
+        wire: {
+          onMaster: {width: 'ADDR_WIDTH', direction: 'out', presence: 'required'},
+          onSlave:  {width: 'ADDR_WIDTH', direction: 'in', presence: 'required'}
+        }
+      },
+      RDDATA: {
+        description: 'Read port data',
+        wire: {
+          onMaster: {width: 'DATA_WIDTH', direction: 'in', presence: 'required'},
+          onSlave:  {width: 'DATA_WIDTH', direction: 'out', presence: 'required'}
+        }
+      },
+      RDERR: {
+        description: 'If ECC feature is present, this signals that an undorrectable error was detected on the read data',
+        wire: {
+          onMaster: {direction: 'in', presence: 'optional'},
+          onSlave:  {direction: 'out', presence: 'optional'}
+        }
+      }
+    }
+  }
 }
 );
 
@@ -8059,115 +8698,22 @@ xassign(['amba.com', 'AMBA4', 'AXI4', 'r0p0_0'])(
 }
 );
 
-xassign(['sifive.com', 'MEM', 'DPRAM', '0.1.0'])(
-{
-  abstractionDefinition: {
-    vendor: 'sifive.com',
-    library: 'MEM',
-    name: 'DPRAM_rtl',
-    version: '0.1.0',
-    busType: {
-      vendor: 'sifive.com',
-      library: 'MEM',
-      name: 'DPRAM',
-      version: '0.1.0',
-    },
-    ports: {
-      WRCLK: {
-        description: 'Write clock',
-        requiresDriver: true,
-        isClock: true,
-        wire: {
-          onMaster: {width: 1, direction: 'in', presence: 'optional'},
-          onSlave:  {width: 1, direction: 'in', presence: 'optional'}
-        }
-      },
-      RDCLK: {
-        description: 'Read clock',
-        requiresDriver: true,
-        isClock: true,
-        wire: {
-          onMaster: {width: 1, direction: 'in', presence: 'optional'},
-          onSlave:  {width: 1, direction: 'in', presence: 'optional'}
-        }
-      },
-      WREN: {
-        description: 'Write enable',
-        wire: {
-          onMaster: {width: 1, direction: 'out', presence: 'required'},
-          onSlave:  {width: 1, direction: 'in', presence: 'required'}
-        }
-      },
-      RDEN: {
-        description: 'Read enable',
-        wire: {
-          onMaster: {width: 1, direction: 'out', presence: 'required'},
-          onSlave:  {width: 1, direction: 'in', presence: 'required'}
-        }
-      },
-      BEN: {
-        description: 'Byte enable',
-        wire: {
-          onMaster: {width: 'BEN_WIDTH', direction: 'out', presence: 'optional'},
-          onSlave:  {width: 'BEN_WIDTH', direction: 'in', presence: 'optional'}
-        }
-      },
-      WRADDR: {
-        description: 'Write port address',
-        wire: {
-          onMaster: {width: 'ADDR_WIDTH', direction: 'out', presence: 'required'},
-          onSlave:  {width: 'ADDR_WIDTH', direction: 'in', presence: 'required'}
-        }
-      },
-      WRDATA: {
-        description: 'Write port data',
-        wire: {
-          onMaster: {width: 'DATA_WIDTH', direction: 'out', presence: 'required'},
-          onSlave:  {width: 'DATA_WIDTH', direction: 'in', presence: 'required'}
-        }
-      },
-      RDADDR: {
-        description: 'Read port address',
-        wire: {
-          onMaster: {width: 'ADDR_WIDTH', direction: 'out', presence: 'required'},
-          onSlave:  {width: 'ADDR_WIDTH', direction: 'in', presence: 'required'}
-        }
-      },
-      RDDATA: {
-        description: 'Read port data',
-        wire: {
-          onMaster: {width: 'DATA_WIDTH', direction: 'in', presence: 'required'},
-          onSlave:  {width: 'DATA_WIDTH', direction: 'out', presence: 'required'}
-        }
-      },
-      RDERR: {
-        description: 'If ECC feature is present, this signals that an undorrectable error was detected on the read data',
-        wire: {
-          onMaster: {direction: 'in', presence: 'optional'},
-          onSlave:  {direction: 'out', presence: 'optional'}
-        }
-      }
-    }
-  }
-}
-);
-
-xassign(['amba.com', 'AMBA4', 'AXI4-Lite', 'r0p0_0'])(
+xassign(['amba.com', 'AMBA3', 'AHBLite', 'r2p0_0'])(
 {
   abstractionDefinition: {
     vendor: 'amba.com',
-    library: 'AMBA4',
-    name: 'AXI4-Lite_rtl',
-    version: 'r0p0_0',
+    library: 'AMBA3',
+    name: 'AHBLite_rtl',
+    version: 'r2p0_0',
     busType: {
       vendor: 'amba.com',
-      library: 'AMBA4',
-      name: 'AXI4-Lite',
-      version: 'r0p0_0',
+      library: 'AMBA3',
+      name: 'AHBLite',
+      version: 'r2p0_0',
     },
     ports: {
-      ACLK: {
-        description: 'Global clock signal. All signals are sampled on the rising edge of the global clock',
+      HCLK: {
+        description: 'The bus clock times all bus transfers. All signal timings are related to the rising edge of HCLK.',
         wire: {
           isClock: true,
           onMaster: {
@@ -8183,25 +8729,8 @@ xassign(['amba.com', 'AMBA4', 'AXI4-Lite', 'r0p0_0'])(
           requiresDriver: true,
         },
       },
-      ACLKEN: {
-        description: 'Clock enable signal. Used as a qualifier for the ACLK signal. This signal indicates which rising edges of ACLK should be acted upon: 1 = valid rising edge of ACLK, 0 = any rising edge of ACLK should be ignored and no bus-state altered.',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            width: 1,
-            direction: 'in',
-          },
-          onSlave: {
-            presence: 'optional',
-            width: 1,
-            direction: 'in',
-          },
-          defaultValue: 1,
-        },
-        vendorExtensions: [],
-      },
-      ARESETn: {
-        description: 'Global reset signal. This signal is active LOW',
+      HRESETn: {
+        description: 'The bus reset signal is active LOW and resets the system and the bus. This is the only active LOW AHB-Lite signal.',
         wire: {
           isReset: true,
           onMaster: {
@@ -8217,172 +8746,8 @@ xassign(['amba.com', 'AMBA4', 'AXI4-Lite', 'r0p0_0'])(
           requiresDriver: true,
         },
       },
-      AWADDR: {
-        description: 'Write address. The write address bus gives the address of the first transfer in a write burst transaction. The associated control signals are used to determine the addresses of the remaining transfers in the burst.',
-        wire: {
-          isAddress: true,
-          onMaster: {
-            presence: 'required',
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'required',
-            direction: 'in',
-          },
-        },
-      },
-      AWPROT: {
-        description: 'Protection type. This signal indicates the normal, privileged, or secure protection level of the transaction and whether the transaction is a data access or an instruction access.',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            width: 3,
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'optional',
-            width: 3,
-            direction: 'in',
-          },
-        },
-      },
-      AWVALID: {
-        description: 'Write address valid. This signal indicates that valid write address and control information are available: 1 = address and control information available, 0 = address and control information not available. The address and control information remain stable until the address acknowledge signal, AWREADY, goes HIGH.',
-        wire: {
-          onMaster: {
-            presence: 'required',
-            width: 1,
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'required',
-            width: 1,
-            direction: 'in',
-          },
-        },
-      },
-      AWREADY: {
-        description: 'Write address ready. This signal indicates that the slave is ready to accept an address and associated control signals: 1 = slave ready, 0 = slave not ready.',
-        wire: {
-          onMaster: {
-            presence: 'required',
-            width: 1,
-            direction: 'in',
-          },
-          onSlave: {
-            presence: 'required',
-            width: 1,
-            direction: 'out',
-          },
-        },
-      },
-      WDATA: {
-        description: 'Write data. The write data bus can be 8, 16, 32, 64, 128, 256, 512, or 1024 bits wide',
-        wire: {
-          isData: true,
-          onMaster: {
-            presence: 'required',
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'required',
-            direction: 'in',
-          },
-        },
-        vendorExtensions: [],
-      },
-      WSTRB: {
-        description: 'Write strobes. This signal indicates which byte lanes to update in memory. There is one write strobe for each eight bits of the write data bus. ',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'required',
-            direction: 'in',
-          },
-          defaultValue: '0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF',
-        },
-      },
-      WVALID: {
-        description: 'Write valid. This signal indicates that valid write data and strobes are available: 1 = write data and strobes available, 0 = write data and strobes not available.',
-        wire: {
-          onMaster: {
-            presence: 'required',
-            width: 1,
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'required',
-            width: 1,
-            direction: 'in',
-          },
-        },
-      },
-      WREADY: {
-        description: 'Write ready. This signal indicates that the slave can accept the write data: 1 = slave ready, 0 = slave not ready.',
-        wire: {
-          onMaster: {
-            presence: 'required',
-            width: 1,
-            direction: 'in',
-          },
-          onSlave: {
-            presence: 'required',
-            width: 1,
-            direction: 'out',
-          },
-        },
-      },
-      BRESP: {
-        description: 'Write response. This signal indicates the status of the write transaction. The allowable responses are OKAY, EXOKAY, SLVERR, and DECERR.',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            width: 2,
-            direction: 'in',
-          },
-          onSlave: {
-            presence: 'optional',
-            width: 2,
-            direction: 'out',
-          },
-          defaultValue: 0,
-        },
-      },
-      BVALID: {
-        description: 'Write response valid. This signal indicates that a valid write response is available: 1 = write response available, 0 = write response not available.',
-        wire: {
-          onMaster: {
-            presence: 'required',
-            width: 1,
-            direction: 'in',
-          },
-          onSlave: {
-            presence: 'required',
-            width: 1,
-            direction: 'out',
-          },
-        },
-      },
-      BREADY: {
-        description: 'Response ready. This signal indicates that the master can accept the response information. 1 = master ready, 0 = master not ready.',
-        wire: {
-          onMaster: {
-            presence: 'required',
-            width: 1,
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'required',
-            width: 1,
-            direction: 'in',
-          },
-        },
-      },
-      ARADDR: {
-        description: 'Read address. The read address bus gives the initial address of a read burst transaction. Only the start address of the burst is provided and the control signals that are issued alongside the address detail how the address is calculated for the remaining transfers in the burst.',
+      HADDR: {
+        description: 'The 32-bit system address bus, but the width is variable',
         wire: {
           isAddress: true,
           onMaster: {
@@ -8396,23 +8761,100 @@ xassign(['amba.com', 'AMBA4', 'AXI4-Lite', 'r0p0_0'])(
           defaultValue: 0,
         },
       },
-      ARPROT: {
-        description: 'Protection type. This signal provides protection unit information for the transaction',
+      HBURST: {
+        description: 'The burst type indicates if the transfer is a single transfer or forms part of a burst.Fixed length bursts of 4, 8, and 16 beats are supported. The burst can be incrementing or wrapping. Incrementing bursts of undefined length are also supported.',
         wire: {
           onMaster: {
-            presence: 'optional',
+            presence: 'required',
             width: 3,
             direction: 'out',
           },
           onSlave: {
-            presence: 'optional',
+            presence: 'required',
             width: 3,
             direction: 'in',
           },
         },
       },
-      ARVALID: {
-        description: 'Read address valid. This signal indicates, when HIGH, that the read address and control information is valid and will remain stable until the address acknowledge signal, ARREADY, is high.\n1 = address and control information valid, 0 = address and control information not valid.',
+      HMASTLOCK: {
+        description: 'When HIGH, this signal indicates that the current transfer is part of a locked sequence. It has the same timing as the address and control signals.',
+        wire: {
+          onMaster: {
+            presence: 'optional',
+            width: 1,
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'optional',
+            width: 1,
+            direction: 'in',
+          },
+          defaultValue: 0,
+        },
+      },
+      HPROT: {
+        description: 'The protection control signals provide additional information about a bus access and are primarily intended for use by any module that wants to implement some level of protection.\nThe signals indicate if the transfer is an opcode fetch or data access, and if the transfer is a privileged mode access or user mode access. For masters with a memory management unit these signals also indicate whether the current access is cacheable or bufferable.',
+        wire: {
+          onMaster: {
+            presence: 'optional',
+            width: 4,
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'optional',
+            width: 4,
+            direction: 'in',
+          },
+          defaultValue: 0,
+        },
+      },
+      HSIZE: {
+        description: 'Indicates the size of the transfer, that is typically byte, halfword, or word. The protocol allows for larger transfer sizes up to a maximum of 1024 bits.',
+        wire: {
+          onMaster: {
+            presence: 'required',
+            width: 3,
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'required',
+            width: 3,
+            direction: 'in',
+          },
+        },
+      },
+      HTRANS: {
+        description: 'Indicates the transfer type of the current transfer. This can be:\n1-IDLE\n2- BUSY\n3- NONSEQUENTIAL\n4- SEQUENTIAL',
+        wire: {
+          onMaster: {
+            presence: 'required',
+            width: 2,
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'required',
+            width: 2,
+            direction: 'in',
+          },
+        },
+      },
+      HWDATA: {
+        description: 'The write data bus transfers data from the master to the slaves during write operations. A minimum data bus width of 32 bits is recommended. However, this can be extended to enable higher bandwidth operation.',
+        wire: {
+          isData: true,
+          onMaster: {
+            presence: 'required',
+            direction: 'out',
+          },
+          onSlave: {
+            presence: 'required',
+            direction: 'in',
+          },
+          defaultValue: 0,
+        },
+      },
+      HWRITE: {
+        description: 'Indicates the transfer direction. When HIGH this signal indicates a write transfer and when LOW a read transfer. It has the same timing as the address signals, however, it must remain constant throughout a burst transfer.',
         wire: {
           onMaster: {
             presence: 'required',
@@ -8426,23 +8868,8 @@ xassign(['amba.com', 'AMBA4', 'AXI4-Lite', 'r0p0_0'])(
           },
         },
       },
-      ARREADY: {
-        description: 'Read address ready. This signal indicates that the slave is ready to accept an address and associated control signals: 1 = slave ready, 0 = slave not ready.',
-        wire: {
-          onMaster: {
-            presence: 'required',
-            width: 1,
-            direction: 'in',
-          },
-          onSlave: {
-            presence: 'required',
-            width: 1,
-            direction: 'out',
-          },
-        },
-      },
-      RDATA: {
-        description: 'Read data. The read data bus can be 8, 16, 32, 64, 128, 256, 512, or 1024 bits wide',
+      HRDATA: {
+        description: 'During read operations, the read data bus transfers data from the selected slave to the multiplexor. The multiplexor then transfers the data to the master. A minimum data bus width of 32 bits is recommended. However, this can be extended to enable higher bandwidth operation.',
         wire: {
           isData: true,
           onMaster: {
@@ -8453,91 +8880,84 @@ xassign(['amba.com', 'AMBA4', 'AXI4-Lite', 'r0p0_0'])(
             presence: 'required',
             direction: 'out',
           },
+          defaultValue: 0,
+        },
+      },
+      HREADYOUT: {
+        description: 'When HIGH, the HREADYOUT signal indicates that a transfer has finished on the bus. This signal can be driven LOW to extend a transfer.',
+        wire: {
+          onMaster: {
+            presence: 'illegal',
+          },
+          onSlave: {
+            presence: 'required',
+            width: 1,
+            direction: 'out',
+          },
+        },
+      },
+      HRESP: {
+        description: 'The transfer response, after passing through the multiplexor, provides the master with additional information on the status of a transfer.\nWhen LOW, the HRESP signal indicates that the transfer status is OKAY.\nWhen HIGH, the HRESP signal indicates that the transfer status is ERROR.',
+        wire: {
+          onMaster: {
+            presence: 'required',
+            width: 1,
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'required',
+            width: 1,
+            direction: 'out',
+          },
+        },
+      },
+      HSELx: {
+        description: 'Each AHB-Lite slave has its own slave select signal HSELx and this signal indicates that the current transfer is intended for the selected slave. When the slave is initially selected, it must also monitor the status of HREADY to ensure that the previous bus transfer has completed,before it responds to the current transfer.\nThe HSELx signal is a combinatorial decode of the address bus.',
+        wire: {
+          onMaster: {
+            presence: 'illegal',
+          },
+          onSlave: {
+            presence: 'required',
+            width: 1,
+            direction: 'in',
+          },
+        },
+      },
+      HREADY: {
+        description: 'The transfer response, after passing through the multiplexor, provides the master with additional information on the status of a transfer.\nWhen LOW, the HRESP signal indicates that the transfer status is OKAY.\nWhen HIGH, the HRESP signal indicates that the transfer status is ERROR.',
+        wire: {
+          onMaster: {
+            presence: 'required',
+            width: 1,
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'required',
+            width: 1,
+            direction: 'in',
+          },
+        },
+      },
+      HCLKEN: {
+        description: 'This is an optional enable signal for HCLK domain',
+        wire: {
+          onMaster: {
+            presence: 'optional',
+            width: 1,
+            direction: 'in',
+          },
+          onSlave: {
+            presence: 'optional',
+            width: 1,
+            direction: 'in',
+          },
+          defaultValue: 1,
         },
         vendorExtensions: [],
       },
-      RRESP: {
-        description: 'Read response. This signal indicates the status of the read transfer. The allowable responses are OKAY, EXOKAY, SLVERR, and DECERR.',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            width: 2,
-            direction: 'in',
-          },
-          onSlave: {
-            presence: 'optional',
-            width: 2,
-            direction: 'out',
-          },
-          defaultValue: 0,
-        },
-      },
-      RVALID: {
-        description: 'Read valid. This signal indicates that the required read data is available and the read transfer can complete: 1 = read data available, 0 = read data not available.',
-        wire: {
-          onMaster: {
-            presence: 'required',
-            width: 1,
-            direction: 'in',
-          },
-          onSlave: {
-            presence: 'required',
-            width: 1,
-            direction: 'out',
-          },
-        },
-      },
-      RREADY: {
-        description: 'Read ready. This signal indicates that the master can accept the read data and response information: 1= master ready, 0 = master not ready.',
-        wire: {
-          onMaster: {
-            presence: 'required',
-            width: 1,
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'required',
-            width: 1,
-            direction: 'in',
-          },
-        },
-      },
-      AWUSER: {
-        description: 'Write Address User. This signal provides sideband signals on the write address channel which are valid at the same time as the other AW signals. Use of the AWUSER signal is implementation specific.',
-        isUser: true,
-        group: 'AW',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'optional',
-            direction: 'in',
-          },
-          defaultValue: 0,
-        },
-      },
-      WUSER: {
-        description: 'Write User. This signal provides sideband signals on the write channel which are valid at the same time as the other W signals. Use of the WUSER signal is implementation specific.',
-        isUser: true,
-        group: 'W',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'optional',
-            direction: 'in',
-          },
-          defaultValue: 0,
-        },
-      },
-      BUSER: {
-        description: 'Write Response User. This signal provides sideband signals on the write response channel which are valid at the same time as the other B signals. Use of the BUSER signal is implementation specific.',
-        isUser: true,
-        group: 'B',
+      HRUSER: {
+        description: 'This is an optional read channel user signal that is not part of the official specification. The use is user specific.',
         wire: {
           onMaster: {
             presence: 'optional',
@@ -8550,10 +8970,8 @@ xassign(['amba.com', 'AMBA4', 'AXI4-Lite', 'r0p0_0'])(
           defaultValue: 0,
         },
       },
-      ARUSER: {
-        description: 'Read Address User. This signal provides sideband signals on the read address channel which are valid at the same time as the other AR signals. Use of the ARUSER signal is implementation specific.',
-        isUser: true,
-        group: 'AR',
+      HWUSER: {
+        description: 'This is an optional write channel user signal that is not part of the official specification. The use is user specific.',
         wire: {
           onMaster: {
             presence: 'optional',
@@ -8566,235 +8984,28 @@ xassign(['amba.com', 'AMBA4', 'AXI4-Lite', 'r0p0_0'])(
           defaultValue: 0,
         },
       },
-      RUSER: {
-        description: 'Read User. This signal provides sideband signals on the read channel which are valid at the same time as the other R signals. Use of the RUSER signal is implementation specific.',
-        isUser: true,
-        group: 'R',
+      HAUSER: {
+        description: 'This is an optional user signal that is not part of the official specification. The use is user specific.',
         wire: {
           onMaster: {
             presence: 'optional',
-            direction: 'in',
+            direction: 'out',
           },
           onSlave: {
             presence: 'optional',
-            direction: 'out',
+            direction: 'in',
           },
           defaultValue: 0,
         },
       },
     },
-    description: 'This defines the signals when implementing an AXI4 interface on RTL views.',
+    description: 'The current file describes the RTL view of an AHBLite interface',
     vendorExtensions: [],
   },
 }
 );
 
-xassign(['amba.com', 'AMBA4', 'AXI4Stream', 'r0p0_1'])(
-{
-  abstractionDefinition: {
-    vendor: 'amba.com',
-    library: 'AMBA4',
-    name: 'AXI4Stream_rtl',
-    version: 'r0p0_1',
-    busType: {
-      vendor: 'amba.com',
-      library: 'AMBA4',
-      name: 'AXI4Stream',
-      version: 'r0p0_1',
-    },
-    ports: {
-      ACLK: {
-        description: 'Global clock signal. All signals are sampled on the rising edge of the global clock',
-        wire: {
-          isClock: true,
-          onMaster: {
-            presence: 'optional',
-            width: 1,
-            direction: 'in',
-          },
-          onSlave: {
-            presence: 'optional',
-            width: 1,
-            direction: 'in',
-          },
-          requiresDriver: true,
-        },
-      },
-      ACLKEN: {
-        description: 'Clock enable signal. Used as a qualifier for the ACLK signal',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            width: 1,
-            direction: 'in',
-          },
-          onSlave: {
-            presence: 'optional',
-            width: 1,
-            direction: 'in',
-          },
-          defaultValue: 1,
-        },
-        vendorExtensions: [],
-      },
-      ARESETn: {
-        description: 'Global reset signal. This signal is active LOW',
-        wire: {
-          isReset: true,
-          onMaster: {
-            presence: 'optional',
-            width: 1,
-            direction: 'in',
-          },
-          onSlave: {
-            presence: 'optional',
-            width: 1,
-            direction: 'in',
-          },
-          requiresDriver: true,
-        },
-      },
-      TVALID: {
-        description: 'This signal indicates that the master is driving a valid transfer. A transfer takes place when both TVALID and TREADY are asserted.',
-        wire: {
-          onMaster: {
-            presence: 'required',
-            width: 1,
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'required',
-            width: 1,
-            direction: 'in',
-          },
-        },
-      },
-      TREADY: {
-        description: 'This signal indicates that the slave can accept  a transfer in the current cycle.',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            width: 1,
-            direction: 'in',
-          },
-          onSlave: {
-            presence: 'optional',
-            width: 1,
-            direction: 'out',
-          },
-          defaultValue: 1,
-        },
-      },
-      TDATA: {
-        description: 'This bus is the primary payload that is used to provide the data that is passing across the interface. The width of the data payload is an integer number of bytes.',
-        wire: {
-          isData: true,
-          onMaster: {
-            presence: 'optional',
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'optional',
-            direction: 'in',
-          },
-          defaultValue: 0,
-        },
-      },
-      TSTRB: {
-        description: 'TSTRB is the byte qualifier that indicates whether the content of the associated byte of TDATA is processed as a data byte of position byte. \n            When TSTRB is absent and TKEEP is present, TSTRB defaults to TKEEP.',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'optional',
-            direction: 'in',
-          },
-        },
-        vendorExtensions: [],
-      },
-      TKEEP: {
-        description: 'TKEEP is the byte qualifier that indicates whether the content of the associated byte of TDATA is processed as a data stream. Associated bytes that have the TKEEP byte qualifier deasserted are null bytes and can be removed from the data stream. ',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'optional',
-            direction: 'in',
-          },
-        },
-        vendorExtensions: [],
-      },
-      TLAST: {
-        description: 'This signal indicates the boundary of a packet.',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            width: 1,
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'optional',
-            width: 1,
-            direction: 'in',
-          },
-          defaultValue: 1,
-        },
-      },
-      TID: {
-        description: 'This is used as data stream identifier that indicates different streams of data.',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'optional',
-            direction: 'in',
-          },
-          defaultValue: 0,
-        },
-      },
-      TDEST: {
-        description: 'This signal provides routing information for the data stream.',
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'optional',
-            direction: 'in',
-          },
-          defaultValue: 0,
-        },
-      },
-      TUSER: {
-        description: 'TUSER is user defined sideband information that can be transmitted alongside the data stream.',
-        isUser: true,
-        wire: {
-          onMaster: {
-            presence: 'optional',
-            direction: 'out',
-          },
-          onSlave: {
-            presence: 'optional',
-            direction: 'in',
-          },
-          defaultValue: 0,
-        },
-      },
-    },
-    description: 'AMBA AXI4-Stream Protocol Specification v1.0',
-    vendorExtensions: [],
-  },
-}
-);
-
-},{}],51:[function(require,module,exports){
+},{}],54:[function(require,module,exports){
 'use strict';
 
 const {name, version, vendor, library} = require('./primitive.js');
@@ -8873,7 +9084,7 @@ module.exports = {
   }
 };
 
-},{"./primitive.js":56}],52:[function(require,module,exports){
+},{"./primitive.js":59}],55:[function(require,module,exports){
 'use strict';
 
 const {name, version, vendor, library, description} = require('./primitive.js');
@@ -8894,7 +9105,7 @@ module.exports = {
   }
 };
 
-},{"./primitive.js":56}],53:[function(require,module,exports){
+},{"./primitive.js":59}],56:[function(require,module,exports){
 'use strict';
 
 const {name, version, vendor, library, id, uint, access} = require('./primitive.js');
@@ -8947,14 +9158,39 @@ const busInterfaces = {
   }
 };
 
+const wire = {
+  oneOf: [{
+    type: 'integer'
+  }, {
+    type: 'string'
+  }, {
+    type: 'object',
+    required: ['direction', 'width'],
+    properties: {
+      direction: { enum: ['in', 'out', 'inout'] },
+      width: {
+        oneOf: [
+          {
+            type: 'integer',
+            minimum: 1
+            // maximum: 65536 // FIXME unbound wire width
+          },
+          {
+            type: 'string'
+          }
+        ]
+      },
+      analog: { enum: ['in', 'out', 'inout'] }
+    }
+  }]
+};
+
 const ports = {
   oneOf: [{
     // Main port format:  "pin_name": width +- direction
     type: 'object',
     patternProperties: {
-      '.+': {
-        type: 'integer'
-      }
+      '.+': wire
     }
   }, {
     // Elaborate port format
@@ -8964,25 +9200,7 @@ const ports = {
       required: ['name', 'wire'],
       properties: {
         name,
-        wire: {
-          type: 'object',
-          required: ['direction', 'width'],
-          properties: {
-            direction: { enum: ['in', 'out'] },
-            width: {
-              oneOf: [
-                {
-                  type: 'integer',
-                  minimum: 1
-                  // maximum: 65536 // FIXME unbound wire width
-                },
-                {
-                  type: 'string'
-                }
-              ]
-            }
-          }
-        }
+        wire: wire
       }
     }
   }]
@@ -9061,7 +9279,7 @@ module.exports = {
   }
 };
 
-},{"./primitive.js":56,"./register.js":57}],54:[function(require,module,exports){
+},{"./primitive.js":59,"./register.js":60}],57:[function(require,module,exports){
 'use strict';
 
 // const {name} = require('./primitive.js');
@@ -9119,7 +9337,7 @@ module.exports = {
   }
 };
 
-},{}],55:[function(require,module,exports){
+},{}],58:[function(require,module,exports){
 'use strict';
 
 const component = require('./component');
@@ -9138,7 +9356,7 @@ exports.component = component;
 exports.abstractionDefinition = abstractionDefinition;
 exports.defs = defs;
 
-},{"./abstractionDefinition":51,"./busDefinition":52,"./component":53,"./defs":54}],56:[function(require,module,exports){
+},{"./abstractionDefinition":54,"./busDefinition":55,"./component":56,"./defs":57}],59:[function(require,module,exports){
 'use strict';
 
 const id = {
@@ -9178,7 +9396,7 @@ const description = {type: 'string'};
 
 module.exports = {id, uint, vendor, library, name, version, access, description};
 
-},{}],57:[function(require,module,exports){
+},{}],60:[function(require,module,exports){
 'use strict';
 
 const {id, uint, access} = require('./primitive.js');
@@ -9202,7 +9420,9 @@ const register = {
           bits: uint,
           name: id,
           desc: { type: 'string' },
-          attr: { type: 'string' }
+          attr: { type: 'string' },
+          access: access,
+          resetValue: uint
         }
       }
     }
@@ -9211,7 +9431,7 @@ const register = {
 
 module.exports = register;
 
-},{"./primitive.js":56}],58:[function(require,module,exports){
+},{"./primitive.js":59}],61:[function(require,module,exports){
 'use strict';
 
 var isArray = Array.isArray;
@@ -9268,7 +9488,7 @@ module.exports = function equal(a, b) {
   return a!==a && b!==b;
 };
 
-},{}],59:[function(require,module,exports){
+},{}],62:[function(require,module,exports){
 'use strict';
 
 module.exports = function (data, opts) {
@@ -9329,7 +9549,7 @@ module.exports = function (data, opts) {
     })(data);
 };
 
-},{}],60:[function(require,module,exports){
+},{}],63:[function(require,module,exports){
 /**
  * Copyright (c) 2014, Chris Pettitt
  * All rights reserved.
@@ -9369,7 +9589,7 @@ module.exports = {
   version: lib.version
 };
 
-},{"./lib":76,"./lib/alg":67,"./lib/json":77}],61:[function(require,module,exports){
+},{"./lib":79,"./lib/alg":70,"./lib/json":80}],64:[function(require,module,exports){
 var _ = require("../lodash");
 
 module.exports = components;
@@ -9398,7 +9618,7 @@ function components(g) {
   return cmpts;
 }
 
-},{"../lodash":78}],62:[function(require,module,exports){
+},{"../lodash":81}],65:[function(require,module,exports){
 var _ = require("../lodash");
 
 module.exports = dfs;
@@ -9442,7 +9662,7 @@ function doDfs(g, v, postorder, visited, navigation, acc) {
   }
 }
 
-},{"../lodash":78}],63:[function(require,module,exports){
+},{"../lodash":81}],66:[function(require,module,exports){
 var dijkstra = require("./dijkstra"),
     _ = require("../lodash");
 
@@ -9454,7 +9674,7 @@ function dijkstraAll(g, weightFunc, edgeFunc) {
   }, {});
 }
 
-},{"../lodash":78,"./dijkstra":64}],64:[function(require,module,exports){
+},{"../lodash":81,"./dijkstra":67}],67:[function(require,module,exports){
 var _ = require("../lodash"),
     PriorityQueue = require("../data/priority-queue");
 
@@ -9510,7 +9730,7 @@ function runDijkstra(g, source, weightFn, edgeFn) {
   return results;
 }
 
-},{"../data/priority-queue":74,"../lodash":78}],65:[function(require,module,exports){
+},{"../data/priority-queue":77,"../lodash":81}],68:[function(require,module,exports){
 var _ = require("../lodash"),
     tarjan = require("./tarjan");
 
@@ -9522,7 +9742,7 @@ function findCycles(g) {
   });
 }
 
-},{"../lodash":78,"./tarjan":72}],66:[function(require,module,exports){
+},{"../lodash":81,"./tarjan":75}],69:[function(require,module,exports){
 var _ = require("../lodash");
 
 module.exports = floydWarshall;
@@ -9574,7 +9794,7 @@ function runFloydWarshall(g, weightFn, edgeFn) {
   return results;
 }
 
-},{"../lodash":78}],67:[function(require,module,exports){
+},{"../lodash":81}],70:[function(require,module,exports){
 module.exports = {
   components: require("./components"),
   dijkstra: require("./dijkstra"),
@@ -9589,7 +9809,7 @@ module.exports = {
   topsort: require("./topsort")
 };
 
-},{"./components":61,"./dijkstra":64,"./dijkstra-all":63,"./find-cycles":65,"./floyd-warshall":66,"./is-acyclic":68,"./postorder":69,"./preorder":70,"./prim":71,"./tarjan":72,"./topsort":73}],68:[function(require,module,exports){
+},{"./components":64,"./dijkstra":67,"./dijkstra-all":66,"./find-cycles":68,"./floyd-warshall":69,"./is-acyclic":71,"./postorder":72,"./preorder":73,"./prim":74,"./tarjan":75,"./topsort":76}],71:[function(require,module,exports){
 var topsort = require("./topsort");
 
 module.exports = isAcyclic;
@@ -9606,7 +9826,7 @@ function isAcyclic(g) {
   return true;
 }
 
-},{"./topsort":73}],69:[function(require,module,exports){
+},{"./topsort":76}],72:[function(require,module,exports){
 var dfs = require("./dfs");
 
 module.exports = postorder;
@@ -9615,7 +9835,7 @@ function postorder(g, vs) {
   return dfs(g, vs, "post");
 }
 
-},{"./dfs":62}],70:[function(require,module,exports){
+},{"./dfs":65}],73:[function(require,module,exports){
 var dfs = require("./dfs");
 
 module.exports = preorder;
@@ -9624,7 +9844,7 @@ function preorder(g, vs) {
   return dfs(g, vs, "pre");
 }
 
-},{"./dfs":62}],71:[function(require,module,exports){
+},{"./dfs":65}],74:[function(require,module,exports){
 var _ = require("../lodash"),
     Graph = require("../graph"),
     PriorityQueue = require("../data/priority-queue");
@@ -9678,7 +9898,7 @@ function prim(g, weightFunc) {
   return result;
 }
 
-},{"../data/priority-queue":74,"../graph":75,"../lodash":78}],72:[function(require,module,exports){
+},{"../data/priority-queue":77,"../graph":78,"../lodash":81}],75:[function(require,module,exports){
 var _ = require("../lodash");
 
 module.exports = tarjan;
@@ -9727,7 +9947,7 @@ function tarjan(g) {
   return results;
 }
 
-},{"../lodash":78}],73:[function(require,module,exports){
+},{"../lodash":81}],76:[function(require,module,exports){
 var _ = require("../lodash");
 
 module.exports = topsort;
@@ -9763,7 +9983,7 @@ function topsort(g) {
 
 function CycleException() {}
 CycleException.prototype = new Error(); // must be an instance of Error to pass testing
-},{"../lodash":78}],74:[function(require,module,exports){
+},{"../lodash":81}],77:[function(require,module,exports){
 var _ = require("../lodash");
 
 module.exports = PriorityQueue;
@@ -9917,7 +10137,7 @@ PriorityQueue.prototype._swap = function(i, j) {
   keyIndices[origArrI.key] = j;
 };
 
-},{"../lodash":78}],75:[function(require,module,exports){
+},{"../lodash":81}],78:[function(require,module,exports){
 "use strict";
 
 var _ = require("./lodash");
@@ -10451,14 +10671,14 @@ function edgeObjToId(isDirected, edgeObj) {
   return edgeArgsToId(isDirected, edgeObj.v, edgeObj.w, edgeObj.name);
 }
 
-},{"./lodash":78}],76:[function(require,module,exports){
+},{"./lodash":81}],79:[function(require,module,exports){
 // Includes only the "core" of graphlib
 module.exports = {
   Graph: require("./graph"),
   version: require("./version")
 };
 
-},{"./graph":75,"./version":79}],77:[function(require,module,exports){
+},{"./graph":78,"./version":82}],80:[function(require,module,exports){
 var _ = require("./lodash"),
     Graph = require("./graph");
 
@@ -10526,7 +10746,7 @@ function read(json) {
   return g;
 }
 
-},{"./graph":75,"./lodash":78}],78:[function(require,module,exports){
+},{"./graph":78,"./lodash":81}],81:[function(require,module,exports){
 /* global window */
 
 var lodash;
@@ -10560,10 +10780,10 @@ if (!lodash) {
 
 module.exports = lodash;
 
-},{"lodash/clone":237,"lodash/constant":238,"lodash/each":239,"lodash/filter":241,"lodash/has":244,"lodash/isArray":248,"lodash/isEmpty":252,"lodash/isFunction":253,"lodash/isUndefined":262,"lodash/keys":263,"lodash/map":266,"lodash/reduce":270,"lodash/size":271,"lodash/transform":275,"lodash/union":276,"lodash/values":277}],79:[function(require,module,exports){
+},{"lodash/clone":240,"lodash/constant":241,"lodash/each":242,"lodash/filter":244,"lodash/has":247,"lodash/isArray":251,"lodash/isEmpty":255,"lodash/isFunction":256,"lodash/isUndefined":265,"lodash/keys":266,"lodash/map":269,"lodash/reduce":273,"lodash/size":274,"lodash/transform":278,"lodash/union":279,"lodash/values":280}],82:[function(require,module,exports){
 module.exports = '2.1.7';
 
-},{}],80:[function(require,module,exports){
+},{}],83:[function(require,module,exports){
 (function (process){
 /*
  * The MIT License (MIT)
@@ -11956,7 +12176,7 @@ module.exports.resolveRefsAt = function (location, options) {
 };
 
 }).call(this,require('_process'))
-},{"_process":284,"graphlib":60,"lodash":265,"native-promise-only":278,"path":280,"path-loader":281,"querystring":287,"slash":288,"uri-js":299}],81:[function(require,module,exports){
+},{"_process":287,"graphlib":63,"lodash":268,"native-promise-only":281,"path":283,"path-loader":284,"querystring":290,"slash":291,"uri-js":302}],84:[function(require,module,exports){
 'use strict';
 
 var traverse = module.exports = function (schema, opts, cb) {
@@ -12047,7 +12267,7 @@ function escapeJsonPtr(str) {
   return str.replace(/~/g, '~0').replace(/\//g, '~1');
 }
 
-},{}],82:[function(require,module,exports){
+},{}],85:[function(require,module,exports){
 (function (global, factory) {
 	typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
 	typeof define === 'function' && define.amd ? define(factory) :
@@ -13737,7 +13957,7 @@ function escapeJsonPtr(str) {
 
 })));
 
-},{}],83:[function(require,module,exports){
+},{}],86:[function(require,module,exports){
 var getNative = require('./_getNative'),
     root = require('./_root');
 
@@ -13746,7 +13966,7 @@ var DataView = getNative(root, 'DataView');
 
 module.exports = DataView;
 
-},{"./_getNative":176,"./_root":220}],84:[function(require,module,exports){
+},{"./_getNative":179,"./_root":223}],87:[function(require,module,exports){
 var hashClear = require('./_hashClear'),
     hashDelete = require('./_hashDelete'),
     hashGet = require('./_hashGet'),
@@ -13780,7 +14000,7 @@ Hash.prototype.set = hashSet;
 
 module.exports = Hash;
 
-},{"./_hashClear":185,"./_hashDelete":186,"./_hashGet":187,"./_hashHas":188,"./_hashSet":189}],85:[function(require,module,exports){
+},{"./_hashClear":188,"./_hashDelete":189,"./_hashGet":190,"./_hashHas":191,"./_hashSet":192}],88:[function(require,module,exports){
 var listCacheClear = require('./_listCacheClear'),
     listCacheDelete = require('./_listCacheDelete'),
     listCacheGet = require('./_listCacheGet'),
@@ -13814,7 +14034,7 @@ ListCache.prototype.set = listCacheSet;
 
 module.exports = ListCache;
 
-},{"./_listCacheClear":200,"./_listCacheDelete":201,"./_listCacheGet":202,"./_listCacheHas":203,"./_listCacheSet":204}],86:[function(require,module,exports){
+},{"./_listCacheClear":203,"./_listCacheDelete":204,"./_listCacheGet":205,"./_listCacheHas":206,"./_listCacheSet":207}],89:[function(require,module,exports){
 var getNative = require('./_getNative'),
     root = require('./_root');
 
@@ -13823,7 +14043,7 @@ var Map = getNative(root, 'Map');
 
 module.exports = Map;
 
-},{"./_getNative":176,"./_root":220}],87:[function(require,module,exports){
+},{"./_getNative":179,"./_root":223}],90:[function(require,module,exports){
 var mapCacheClear = require('./_mapCacheClear'),
     mapCacheDelete = require('./_mapCacheDelete'),
     mapCacheGet = require('./_mapCacheGet'),
@@ -13857,7 +14077,7 @@ MapCache.prototype.set = mapCacheSet;
 
 module.exports = MapCache;
 
-},{"./_mapCacheClear":205,"./_mapCacheDelete":206,"./_mapCacheGet":207,"./_mapCacheHas":208,"./_mapCacheSet":209}],88:[function(require,module,exports){
+},{"./_mapCacheClear":208,"./_mapCacheDelete":209,"./_mapCacheGet":210,"./_mapCacheHas":211,"./_mapCacheSet":212}],91:[function(require,module,exports){
 var getNative = require('./_getNative'),
     root = require('./_root');
 
@@ -13866,7 +14086,7 @@ var Promise = getNative(root, 'Promise');
 
 module.exports = Promise;
 
-},{"./_getNative":176,"./_root":220}],89:[function(require,module,exports){
+},{"./_getNative":179,"./_root":223}],92:[function(require,module,exports){
 var getNative = require('./_getNative'),
     root = require('./_root');
 
@@ -13875,7 +14095,7 @@ var Set = getNative(root, 'Set');
 
 module.exports = Set;
 
-},{"./_getNative":176,"./_root":220}],90:[function(require,module,exports){
+},{"./_getNative":179,"./_root":223}],93:[function(require,module,exports){
 var MapCache = require('./_MapCache'),
     setCacheAdd = require('./_setCacheAdd'),
     setCacheHas = require('./_setCacheHas');
@@ -13904,7 +14124,7 @@ SetCache.prototype.has = setCacheHas;
 
 module.exports = SetCache;
 
-},{"./_MapCache":87,"./_setCacheAdd":221,"./_setCacheHas":222}],91:[function(require,module,exports){
+},{"./_MapCache":90,"./_setCacheAdd":224,"./_setCacheHas":225}],94:[function(require,module,exports){
 var ListCache = require('./_ListCache'),
     stackClear = require('./_stackClear'),
     stackDelete = require('./_stackDelete'),
@@ -13933,7 +14153,7 @@ Stack.prototype.set = stackSet;
 
 module.exports = Stack;
 
-},{"./_ListCache":85,"./_stackClear":226,"./_stackDelete":227,"./_stackGet":228,"./_stackHas":229,"./_stackSet":230}],92:[function(require,module,exports){
+},{"./_ListCache":88,"./_stackClear":229,"./_stackDelete":230,"./_stackGet":231,"./_stackHas":232,"./_stackSet":233}],95:[function(require,module,exports){
 var root = require('./_root');
 
 /** Built-in value references. */
@@ -13941,7 +14161,7 @@ var Symbol = root.Symbol;
 
 module.exports = Symbol;
 
-},{"./_root":220}],93:[function(require,module,exports){
+},{"./_root":223}],96:[function(require,module,exports){
 var root = require('./_root');
 
 /** Built-in value references. */
@@ -13949,7 +14169,7 @@ var Uint8Array = root.Uint8Array;
 
 module.exports = Uint8Array;
 
-},{"./_root":220}],94:[function(require,module,exports){
+},{"./_root":223}],97:[function(require,module,exports){
 var getNative = require('./_getNative'),
     root = require('./_root');
 
@@ -13958,7 +14178,7 @@ var WeakMap = getNative(root, 'WeakMap');
 
 module.exports = WeakMap;
 
-},{"./_getNative":176,"./_root":220}],95:[function(require,module,exports){
+},{"./_getNative":179,"./_root":223}],98:[function(require,module,exports){
 /**
  * A faster alternative to `Function#apply`, this function invokes `func`
  * with the `this` binding of `thisArg` and the arguments of `args`.
@@ -13981,7 +14201,7 @@ function apply(func, thisArg, args) {
 
 module.exports = apply;
 
-},{}],96:[function(require,module,exports){
+},{}],99:[function(require,module,exports){
 /**
  * A specialized version of `_.forEach` for arrays without support for
  * iteratee shorthands.
@@ -14005,7 +14225,7 @@ function arrayEach(array, iteratee) {
 
 module.exports = arrayEach;
 
-},{}],97:[function(require,module,exports){
+},{}],100:[function(require,module,exports){
 /**
  * A specialized version of `_.filter` for arrays without support for
  * iteratee shorthands.
@@ -14032,7 +14252,7 @@ function arrayFilter(array, predicate) {
 
 module.exports = arrayFilter;
 
-},{}],98:[function(require,module,exports){
+},{}],101:[function(require,module,exports){
 var baseIndexOf = require('./_baseIndexOf');
 
 /**
@@ -14051,7 +14271,7 @@ function arrayIncludes(array, value) {
 
 module.exports = arrayIncludes;
 
-},{"./_baseIndexOf":124}],99:[function(require,module,exports){
+},{"./_baseIndexOf":127}],102:[function(require,module,exports){
 /**
  * This function is like `arrayIncludes` except that it accepts a comparator.
  *
@@ -14075,7 +14295,7 @@ function arrayIncludesWith(array, value, comparator) {
 
 module.exports = arrayIncludesWith;
 
-},{}],100:[function(require,module,exports){
+},{}],103:[function(require,module,exports){
 var baseTimes = require('./_baseTimes'),
     isArguments = require('./isArguments'),
     isArray = require('./isArray'),
@@ -14126,7 +14346,7 @@ function arrayLikeKeys(value, inherited) {
 
 module.exports = arrayLikeKeys;
 
-},{"./_baseTimes":145,"./_isIndex":194,"./isArguments":247,"./isArray":248,"./isBuffer":251,"./isTypedArray":261}],101:[function(require,module,exports){
+},{"./_baseTimes":148,"./_isIndex":197,"./isArguments":250,"./isArray":251,"./isBuffer":254,"./isTypedArray":264}],104:[function(require,module,exports){
 /**
  * A specialized version of `_.map` for arrays without support for iteratee
  * shorthands.
@@ -14149,7 +14369,7 @@ function arrayMap(array, iteratee) {
 
 module.exports = arrayMap;
 
-},{}],102:[function(require,module,exports){
+},{}],105:[function(require,module,exports){
 /**
  * Appends the elements of `values` to `array`.
  *
@@ -14171,7 +14391,7 @@ function arrayPush(array, values) {
 
 module.exports = arrayPush;
 
-},{}],103:[function(require,module,exports){
+},{}],106:[function(require,module,exports){
 /**
  * A specialized version of `_.reduce` for arrays without support for
  * iteratee shorthands.
@@ -14199,7 +14419,7 @@ function arrayReduce(array, iteratee, accumulator, initAccum) {
 
 module.exports = arrayReduce;
 
-},{}],104:[function(require,module,exports){
+},{}],107:[function(require,module,exports){
 /**
  * A specialized version of `_.some` for arrays without support for iteratee
  * shorthands.
@@ -14224,7 +14444,7 @@ function arraySome(array, predicate) {
 
 module.exports = arraySome;
 
-},{}],105:[function(require,module,exports){
+},{}],108:[function(require,module,exports){
 var baseProperty = require('./_baseProperty');
 
 /**
@@ -14238,7 +14458,7 @@ var asciiSize = baseProperty('length');
 
 module.exports = asciiSize;
 
-},{"./_baseProperty":140}],106:[function(require,module,exports){
+},{"./_baseProperty":143}],109:[function(require,module,exports){
 var baseAssignValue = require('./_baseAssignValue'),
     eq = require('./eq');
 
@@ -14268,7 +14488,7 @@ function assignValue(object, key, value) {
 
 module.exports = assignValue;
 
-},{"./_baseAssignValue":110,"./eq":240}],107:[function(require,module,exports){
+},{"./_baseAssignValue":113,"./eq":243}],110:[function(require,module,exports){
 var eq = require('./eq');
 
 /**
@@ -14291,7 +14511,7 @@ function assocIndexOf(array, key) {
 
 module.exports = assocIndexOf;
 
-},{"./eq":240}],108:[function(require,module,exports){
+},{"./eq":243}],111:[function(require,module,exports){
 var copyObject = require('./_copyObject'),
     keys = require('./keys');
 
@@ -14310,7 +14530,7 @@ function baseAssign(object, source) {
 
 module.exports = baseAssign;
 
-},{"./_copyObject":160,"./keys":263}],109:[function(require,module,exports){
+},{"./_copyObject":163,"./keys":266}],112:[function(require,module,exports){
 var copyObject = require('./_copyObject'),
     keysIn = require('./keysIn');
 
@@ -14329,7 +14549,7 @@ function baseAssignIn(object, source) {
 
 module.exports = baseAssignIn;
 
-},{"./_copyObject":160,"./keysIn":264}],110:[function(require,module,exports){
+},{"./_copyObject":163,"./keysIn":267}],113:[function(require,module,exports){
 var defineProperty = require('./_defineProperty');
 
 /**
@@ -14356,7 +14576,7 @@ function baseAssignValue(object, key, value) {
 
 module.exports = baseAssignValue;
 
-},{"./_defineProperty":167}],111:[function(require,module,exports){
+},{"./_defineProperty":170}],114:[function(require,module,exports){
 var Stack = require('./_Stack'),
     arrayEach = require('./_arrayEach'),
     assignValue = require('./_assignValue'),
@@ -14499,16 +14719,10 @@ function baseClone(value, bitmask, customizer, key, object, stack) {
     value.forEach(function(subValue) {
       result.add(baseClone(subValue, bitmask, customizer, subValue, value, stack));
     });
-
-    return result;
-  }
-
-  if (isMap(value)) {
+  } else if (isMap(value)) {
     value.forEach(function(subValue, key) {
       result.set(key, baseClone(subValue, bitmask, customizer, key, value, stack));
     });
-
-    return result;
   }
 
   var keysFunc = isFull
@@ -14529,7 +14743,7 @@ function baseClone(value, bitmask, customizer, key, object, stack) {
 
 module.exports = baseClone;
 
-},{"./_Stack":91,"./_arrayEach":96,"./_assignValue":106,"./_baseAssign":108,"./_baseAssignIn":109,"./_cloneBuffer":154,"./_copyArray":159,"./_copySymbols":161,"./_copySymbolsIn":162,"./_getAllKeys":172,"./_getAllKeysIn":173,"./_getTag":181,"./_initCloneArray":190,"./_initCloneByTag":191,"./_initCloneObject":192,"./isArray":248,"./isBuffer":251,"./isMap":255,"./isObject":256,"./isSet":258,"./keys":263}],112:[function(require,module,exports){
+},{"./_Stack":94,"./_arrayEach":99,"./_assignValue":109,"./_baseAssign":111,"./_baseAssignIn":112,"./_cloneBuffer":157,"./_copyArray":162,"./_copySymbols":164,"./_copySymbolsIn":165,"./_getAllKeys":175,"./_getAllKeysIn":176,"./_getTag":184,"./_initCloneArray":193,"./_initCloneByTag":194,"./_initCloneObject":195,"./isArray":251,"./isBuffer":254,"./isMap":258,"./isObject":259,"./isSet":261,"./keys":266}],115:[function(require,module,exports){
 var isObject = require('./isObject');
 
 /** Built-in value references. */
@@ -14561,7 +14775,7 @@ var baseCreate = (function() {
 
 module.exports = baseCreate;
 
-},{"./isObject":256}],113:[function(require,module,exports){
+},{"./isObject":259}],116:[function(require,module,exports){
 var baseForOwn = require('./_baseForOwn'),
     createBaseEach = require('./_createBaseEach');
 
@@ -14577,7 +14791,7 @@ var baseEach = createBaseEach(baseForOwn);
 
 module.exports = baseEach;
 
-},{"./_baseForOwn":118,"./_createBaseEach":164}],114:[function(require,module,exports){
+},{"./_baseForOwn":121,"./_createBaseEach":167}],117:[function(require,module,exports){
 var baseEach = require('./_baseEach');
 
 /**
@@ -14600,7 +14814,7 @@ function baseFilter(collection, predicate) {
 
 module.exports = baseFilter;
 
-},{"./_baseEach":113}],115:[function(require,module,exports){
+},{"./_baseEach":116}],118:[function(require,module,exports){
 /**
  * The base implementation of `_.findIndex` and `_.findLastIndex` without
  * support for iteratee shorthands.
@@ -14626,7 +14840,7 @@ function baseFindIndex(array, predicate, fromIndex, fromRight) {
 
 module.exports = baseFindIndex;
 
-},{}],116:[function(require,module,exports){
+},{}],119:[function(require,module,exports){
 var arrayPush = require('./_arrayPush'),
     isFlattenable = require('./_isFlattenable');
 
@@ -14666,7 +14880,7 @@ function baseFlatten(array, depth, predicate, isStrict, result) {
 
 module.exports = baseFlatten;
 
-},{"./_arrayPush":102,"./_isFlattenable":193}],117:[function(require,module,exports){
+},{"./_arrayPush":105,"./_isFlattenable":196}],120:[function(require,module,exports){
 var createBaseFor = require('./_createBaseFor');
 
 /**
@@ -14684,7 +14898,7 @@ var baseFor = createBaseFor();
 
 module.exports = baseFor;
 
-},{"./_createBaseFor":165}],118:[function(require,module,exports){
+},{"./_createBaseFor":168}],121:[function(require,module,exports){
 var baseFor = require('./_baseFor'),
     keys = require('./keys');
 
@@ -14702,7 +14916,7 @@ function baseForOwn(object, iteratee) {
 
 module.exports = baseForOwn;
 
-},{"./_baseFor":117,"./keys":263}],119:[function(require,module,exports){
+},{"./_baseFor":120,"./keys":266}],122:[function(require,module,exports){
 var castPath = require('./_castPath'),
     toKey = require('./_toKey');
 
@@ -14728,7 +14942,7 @@ function baseGet(object, path) {
 
 module.exports = baseGet;
 
-},{"./_castPath":152,"./_toKey":234}],120:[function(require,module,exports){
+},{"./_castPath":155,"./_toKey":237}],123:[function(require,module,exports){
 var arrayPush = require('./_arrayPush'),
     isArray = require('./isArray');
 
@@ -14750,7 +14964,7 @@ function baseGetAllKeys(object, keysFunc, symbolsFunc) {
 
 module.exports = baseGetAllKeys;
 
-},{"./_arrayPush":102,"./isArray":248}],121:[function(require,module,exports){
+},{"./_arrayPush":105,"./isArray":251}],124:[function(require,module,exports){
 var Symbol = require('./_Symbol'),
     getRawTag = require('./_getRawTag'),
     objectToString = require('./_objectToString');
@@ -14780,7 +14994,7 @@ function baseGetTag(value) {
 
 module.exports = baseGetTag;
 
-},{"./_Symbol":92,"./_getRawTag":178,"./_objectToString":217}],122:[function(require,module,exports){
+},{"./_Symbol":95,"./_getRawTag":181,"./_objectToString":220}],125:[function(require,module,exports){
 /** Used for built-in method references. */
 var objectProto = Object.prototype;
 
@@ -14801,7 +15015,7 @@ function baseHas(object, key) {
 
 module.exports = baseHas;
 
-},{}],123:[function(require,module,exports){
+},{}],126:[function(require,module,exports){
 /**
  * The base implementation of `_.hasIn` without support for deep paths.
  *
@@ -14816,7 +15030,7 @@ function baseHasIn(object, key) {
 
 module.exports = baseHasIn;
 
-},{}],124:[function(require,module,exports){
+},{}],127:[function(require,module,exports){
 var baseFindIndex = require('./_baseFindIndex'),
     baseIsNaN = require('./_baseIsNaN'),
     strictIndexOf = require('./_strictIndexOf');
@@ -14838,7 +15052,7 @@ function baseIndexOf(array, value, fromIndex) {
 
 module.exports = baseIndexOf;
 
-},{"./_baseFindIndex":115,"./_baseIsNaN":130,"./_strictIndexOf":231}],125:[function(require,module,exports){
+},{"./_baseFindIndex":118,"./_baseIsNaN":133,"./_strictIndexOf":234}],128:[function(require,module,exports){
 var baseGetTag = require('./_baseGetTag'),
     isObjectLike = require('./isObjectLike');
 
@@ -14858,7 +15072,7 @@ function baseIsArguments(value) {
 
 module.exports = baseIsArguments;
 
-},{"./_baseGetTag":121,"./isObjectLike":257}],126:[function(require,module,exports){
+},{"./_baseGetTag":124,"./isObjectLike":260}],129:[function(require,module,exports){
 var baseIsEqualDeep = require('./_baseIsEqualDeep'),
     isObjectLike = require('./isObjectLike');
 
@@ -14888,7 +15102,7 @@ function baseIsEqual(value, other, bitmask, customizer, stack) {
 
 module.exports = baseIsEqual;
 
-},{"./_baseIsEqualDeep":127,"./isObjectLike":257}],127:[function(require,module,exports){
+},{"./_baseIsEqualDeep":130,"./isObjectLike":260}],130:[function(require,module,exports){
 var Stack = require('./_Stack'),
     equalArrays = require('./_equalArrays'),
     equalByTag = require('./_equalByTag'),
@@ -14973,7 +15187,7 @@ function baseIsEqualDeep(object, other, bitmask, customizer, equalFunc, stack) {
 
 module.exports = baseIsEqualDeep;
 
-},{"./_Stack":91,"./_equalArrays":168,"./_equalByTag":169,"./_equalObjects":170,"./_getTag":181,"./isArray":248,"./isBuffer":251,"./isTypedArray":261}],128:[function(require,module,exports){
+},{"./_Stack":94,"./_equalArrays":171,"./_equalByTag":172,"./_equalObjects":173,"./_getTag":184,"./isArray":251,"./isBuffer":254,"./isTypedArray":264}],131:[function(require,module,exports){
 var getTag = require('./_getTag'),
     isObjectLike = require('./isObjectLike');
 
@@ -14993,7 +15207,7 @@ function baseIsMap(value) {
 
 module.exports = baseIsMap;
 
-},{"./_getTag":181,"./isObjectLike":257}],129:[function(require,module,exports){
+},{"./_getTag":184,"./isObjectLike":260}],132:[function(require,module,exports){
 var Stack = require('./_Stack'),
     baseIsEqual = require('./_baseIsEqual');
 
@@ -15057,7 +15271,7 @@ function baseIsMatch(object, source, matchData, customizer) {
 
 module.exports = baseIsMatch;
 
-},{"./_Stack":91,"./_baseIsEqual":126}],130:[function(require,module,exports){
+},{"./_Stack":94,"./_baseIsEqual":129}],133:[function(require,module,exports){
 /**
  * The base implementation of `_.isNaN` without support for number objects.
  *
@@ -15071,7 +15285,7 @@ function baseIsNaN(value) {
 
 module.exports = baseIsNaN;
 
-},{}],131:[function(require,module,exports){
+},{}],134:[function(require,module,exports){
 var isFunction = require('./isFunction'),
     isMasked = require('./_isMasked'),
     isObject = require('./isObject'),
@@ -15120,7 +15334,7 @@ function baseIsNative(value) {
 
 module.exports = baseIsNative;
 
-},{"./_isMasked":197,"./_toSource":235,"./isFunction":253,"./isObject":256}],132:[function(require,module,exports){
+},{"./_isMasked":200,"./_toSource":238,"./isFunction":256,"./isObject":259}],135:[function(require,module,exports){
 var getTag = require('./_getTag'),
     isObjectLike = require('./isObjectLike');
 
@@ -15140,7 +15354,7 @@ function baseIsSet(value) {
 
 module.exports = baseIsSet;
 
-},{"./_getTag":181,"./isObjectLike":257}],133:[function(require,module,exports){
+},{"./_getTag":184,"./isObjectLike":260}],136:[function(require,module,exports){
 var baseGetTag = require('./_baseGetTag'),
     isLength = require('./isLength'),
     isObjectLike = require('./isObjectLike');
@@ -15202,7 +15416,7 @@ function baseIsTypedArray(value) {
 
 module.exports = baseIsTypedArray;
 
-},{"./_baseGetTag":121,"./isLength":254,"./isObjectLike":257}],134:[function(require,module,exports){
+},{"./_baseGetTag":124,"./isLength":257,"./isObjectLike":260}],137:[function(require,module,exports){
 var baseMatches = require('./_baseMatches'),
     baseMatchesProperty = require('./_baseMatchesProperty'),
     identity = require('./identity'),
@@ -15235,7 +15449,7 @@ function baseIteratee(value) {
 
 module.exports = baseIteratee;
 
-},{"./_baseMatches":138,"./_baseMatchesProperty":139,"./identity":246,"./isArray":248,"./property":269}],135:[function(require,module,exports){
+},{"./_baseMatches":141,"./_baseMatchesProperty":142,"./identity":249,"./isArray":251,"./property":272}],138:[function(require,module,exports){
 var isPrototype = require('./_isPrototype'),
     nativeKeys = require('./_nativeKeys');
 
@@ -15267,7 +15481,7 @@ function baseKeys(object) {
 
 module.exports = baseKeys;
 
-},{"./_isPrototype":198,"./_nativeKeys":214}],136:[function(require,module,exports){
+},{"./_isPrototype":201,"./_nativeKeys":217}],139:[function(require,module,exports){
 var isObject = require('./isObject'),
     isPrototype = require('./_isPrototype'),
     nativeKeysIn = require('./_nativeKeysIn');
@@ -15302,7 +15516,7 @@ function baseKeysIn(object) {
 
 module.exports = baseKeysIn;
 
-},{"./_isPrototype":198,"./_nativeKeysIn":215,"./isObject":256}],137:[function(require,module,exports){
+},{"./_isPrototype":201,"./_nativeKeysIn":218,"./isObject":259}],140:[function(require,module,exports){
 var baseEach = require('./_baseEach'),
     isArrayLike = require('./isArrayLike');
 
@@ -15326,7 +15540,7 @@ function baseMap(collection, iteratee) {
 
 module.exports = baseMap;
 
-},{"./_baseEach":113,"./isArrayLike":249}],138:[function(require,module,exports){
+},{"./_baseEach":116,"./isArrayLike":252}],141:[function(require,module,exports){
 var baseIsMatch = require('./_baseIsMatch'),
     getMatchData = require('./_getMatchData'),
     matchesStrictComparable = require('./_matchesStrictComparable');
@@ -15350,7 +15564,7 @@ function baseMatches(source) {
 
 module.exports = baseMatches;
 
-},{"./_baseIsMatch":129,"./_getMatchData":175,"./_matchesStrictComparable":211}],139:[function(require,module,exports){
+},{"./_baseIsMatch":132,"./_getMatchData":178,"./_matchesStrictComparable":214}],142:[function(require,module,exports){
 var baseIsEqual = require('./_baseIsEqual'),
     get = require('./get'),
     hasIn = require('./hasIn'),
@@ -15385,7 +15599,7 @@ function baseMatchesProperty(path, srcValue) {
 
 module.exports = baseMatchesProperty;
 
-},{"./_baseIsEqual":126,"./_isKey":195,"./_isStrictComparable":199,"./_matchesStrictComparable":211,"./_toKey":234,"./get":243,"./hasIn":245}],140:[function(require,module,exports){
+},{"./_baseIsEqual":129,"./_isKey":198,"./_isStrictComparable":202,"./_matchesStrictComparable":214,"./_toKey":237,"./get":246,"./hasIn":248}],143:[function(require,module,exports){
 /**
  * The base implementation of `_.property` without support for deep paths.
  *
@@ -15401,7 +15615,7 @@ function baseProperty(key) {
 
 module.exports = baseProperty;
 
-},{}],141:[function(require,module,exports){
+},{}],144:[function(require,module,exports){
 var baseGet = require('./_baseGet');
 
 /**
@@ -15419,7 +15633,7 @@ function basePropertyDeep(path) {
 
 module.exports = basePropertyDeep;
 
-},{"./_baseGet":119}],142:[function(require,module,exports){
+},{"./_baseGet":122}],145:[function(require,module,exports){
 /**
  * The base implementation of `_.reduce` and `_.reduceRight`, without support
  * for iteratee shorthands, which iterates over `collection` using `eachFunc`.
@@ -15444,7 +15658,7 @@ function baseReduce(collection, iteratee, accumulator, initAccum, eachFunc) {
 
 module.exports = baseReduce;
 
-},{}],143:[function(require,module,exports){
+},{}],146:[function(require,module,exports){
 var identity = require('./identity'),
     overRest = require('./_overRest'),
     setToString = require('./_setToString');
@@ -15463,7 +15677,7 @@ function baseRest(func, start) {
 
 module.exports = baseRest;
 
-},{"./_overRest":219,"./_setToString":224,"./identity":246}],144:[function(require,module,exports){
+},{"./_overRest":222,"./_setToString":227,"./identity":249}],147:[function(require,module,exports){
 var constant = require('./constant'),
     defineProperty = require('./_defineProperty'),
     identity = require('./identity');
@@ -15487,7 +15701,7 @@ var baseSetToString = !defineProperty ? identity : function(func, string) {
 
 module.exports = baseSetToString;
 
-},{"./_defineProperty":167,"./constant":238,"./identity":246}],145:[function(require,module,exports){
+},{"./_defineProperty":170,"./constant":241,"./identity":249}],148:[function(require,module,exports){
 /**
  * The base implementation of `_.times` without support for iteratee shorthands
  * or max array length checks.
@@ -15509,7 +15723,7 @@ function baseTimes(n, iteratee) {
 
 module.exports = baseTimes;
 
-},{}],146:[function(require,module,exports){
+},{}],149:[function(require,module,exports){
 var Symbol = require('./_Symbol'),
     arrayMap = require('./_arrayMap'),
     isArray = require('./isArray'),
@@ -15548,7 +15762,7 @@ function baseToString(value) {
 
 module.exports = baseToString;
 
-},{"./_Symbol":92,"./_arrayMap":101,"./isArray":248,"./isSymbol":260}],147:[function(require,module,exports){
+},{"./_Symbol":95,"./_arrayMap":104,"./isArray":251,"./isSymbol":263}],150:[function(require,module,exports){
 /**
  * The base implementation of `_.unary` without support for storing metadata.
  *
@@ -15564,7 +15778,7 @@ function baseUnary(func) {
 
 module.exports = baseUnary;
 
-},{}],148:[function(require,module,exports){
+},{}],151:[function(require,module,exports){
 var SetCache = require('./_SetCache'),
     arrayIncludes = require('./_arrayIncludes'),
     arrayIncludesWith = require('./_arrayIncludesWith'),
@@ -15638,7 +15852,7 @@ function baseUniq(array, iteratee, comparator) {
 
 module.exports = baseUniq;
 
-},{"./_SetCache":90,"./_arrayIncludes":98,"./_arrayIncludesWith":99,"./_cacheHas":150,"./_createSet":166,"./_setToArray":223}],149:[function(require,module,exports){
+},{"./_SetCache":93,"./_arrayIncludes":101,"./_arrayIncludesWith":102,"./_cacheHas":153,"./_createSet":169,"./_setToArray":226}],152:[function(require,module,exports){
 var arrayMap = require('./_arrayMap');
 
 /**
@@ -15659,7 +15873,7 @@ function baseValues(object, props) {
 
 module.exports = baseValues;
 
-},{"./_arrayMap":101}],150:[function(require,module,exports){
+},{"./_arrayMap":104}],153:[function(require,module,exports){
 /**
  * Checks if a `cache` value for `key` exists.
  *
@@ -15674,7 +15888,7 @@ function cacheHas(cache, key) {
 
 module.exports = cacheHas;
 
-},{}],151:[function(require,module,exports){
+},{}],154:[function(require,module,exports){
 var identity = require('./identity');
 
 /**
@@ -15690,7 +15904,7 @@ function castFunction(value) {
 
 module.exports = castFunction;
 
-},{"./identity":246}],152:[function(require,module,exports){
+},{"./identity":249}],155:[function(require,module,exports){
 var isArray = require('./isArray'),
     isKey = require('./_isKey'),
     stringToPath = require('./_stringToPath'),
@@ -15713,7 +15927,7 @@ function castPath(value, object) {
 
 module.exports = castPath;
 
-},{"./_isKey":195,"./_stringToPath":233,"./isArray":248,"./toString":274}],153:[function(require,module,exports){
+},{"./_isKey":198,"./_stringToPath":236,"./isArray":251,"./toString":277}],156:[function(require,module,exports){
 var Uint8Array = require('./_Uint8Array');
 
 /**
@@ -15731,7 +15945,7 @@ function cloneArrayBuffer(arrayBuffer) {
 
 module.exports = cloneArrayBuffer;
 
-},{"./_Uint8Array":93}],154:[function(require,module,exports){
+},{"./_Uint8Array":96}],157:[function(require,module,exports){
 var root = require('./_root');
 
 /** Detect free variable `exports`. */
@@ -15768,7 +15982,7 @@ function cloneBuffer(buffer, isDeep) {
 
 module.exports = cloneBuffer;
 
-},{"./_root":220}],155:[function(require,module,exports){
+},{"./_root":223}],158:[function(require,module,exports){
 var cloneArrayBuffer = require('./_cloneArrayBuffer');
 
 /**
@@ -15786,7 +16000,7 @@ function cloneDataView(dataView, isDeep) {
 
 module.exports = cloneDataView;
 
-},{"./_cloneArrayBuffer":153}],156:[function(require,module,exports){
+},{"./_cloneArrayBuffer":156}],159:[function(require,module,exports){
 /** Used to match `RegExp` flags from their coerced string values. */
 var reFlags = /\w*$/;
 
@@ -15805,7 +16019,7 @@ function cloneRegExp(regexp) {
 
 module.exports = cloneRegExp;
 
-},{}],157:[function(require,module,exports){
+},{}],160:[function(require,module,exports){
 var Symbol = require('./_Symbol');
 
 /** Used to convert symbols to primitives and strings. */
@@ -15825,7 +16039,7 @@ function cloneSymbol(symbol) {
 
 module.exports = cloneSymbol;
 
-},{"./_Symbol":92}],158:[function(require,module,exports){
+},{"./_Symbol":95}],161:[function(require,module,exports){
 var cloneArrayBuffer = require('./_cloneArrayBuffer');
 
 /**
@@ -15843,7 +16057,7 @@ function cloneTypedArray(typedArray, isDeep) {
 
 module.exports = cloneTypedArray;
 
-},{"./_cloneArrayBuffer":153}],159:[function(require,module,exports){
+},{"./_cloneArrayBuffer":156}],162:[function(require,module,exports){
 /**
  * Copies the values of `source` to `array`.
  *
@@ -15865,7 +16079,7 @@ function copyArray(source, array) {
 
 module.exports = copyArray;
 
-},{}],160:[function(require,module,exports){
+},{}],163:[function(require,module,exports){
 var assignValue = require('./_assignValue'),
     baseAssignValue = require('./_baseAssignValue');
 
@@ -15907,7 +16121,7 @@ function copyObject(source, props, object, customizer) {
 
 module.exports = copyObject;
 
-},{"./_assignValue":106,"./_baseAssignValue":110}],161:[function(require,module,exports){
+},{"./_assignValue":109,"./_baseAssignValue":113}],164:[function(require,module,exports){
 var copyObject = require('./_copyObject'),
     getSymbols = require('./_getSymbols');
 
@@ -15925,7 +16139,7 @@ function copySymbols(source, object) {
 
 module.exports = copySymbols;
 
-},{"./_copyObject":160,"./_getSymbols":179}],162:[function(require,module,exports){
+},{"./_copyObject":163,"./_getSymbols":182}],165:[function(require,module,exports){
 var copyObject = require('./_copyObject'),
     getSymbolsIn = require('./_getSymbolsIn');
 
@@ -15943,7 +16157,7 @@ function copySymbolsIn(source, object) {
 
 module.exports = copySymbolsIn;
 
-},{"./_copyObject":160,"./_getSymbolsIn":180}],163:[function(require,module,exports){
+},{"./_copyObject":163,"./_getSymbolsIn":183}],166:[function(require,module,exports){
 var root = require('./_root');
 
 /** Used to detect overreaching core-js shims. */
@@ -15951,7 +16165,7 @@ var coreJsData = root['__core-js_shared__'];
 
 module.exports = coreJsData;
 
-},{"./_root":220}],164:[function(require,module,exports){
+},{"./_root":223}],167:[function(require,module,exports){
 var isArrayLike = require('./isArrayLike');
 
 /**
@@ -15985,7 +16199,7 @@ function createBaseEach(eachFunc, fromRight) {
 
 module.exports = createBaseEach;
 
-},{"./isArrayLike":249}],165:[function(require,module,exports){
+},{"./isArrayLike":252}],168:[function(require,module,exports){
 /**
  * Creates a base function for methods like `_.forIn` and `_.forOwn`.
  *
@@ -16012,7 +16226,7 @@ function createBaseFor(fromRight) {
 
 module.exports = createBaseFor;
 
-},{}],166:[function(require,module,exports){
+},{}],169:[function(require,module,exports){
 var Set = require('./_Set'),
     noop = require('./noop'),
     setToArray = require('./_setToArray');
@@ -16033,7 +16247,7 @@ var createSet = !(Set && (1 / setToArray(new Set([,-0]))[1]) == INFINITY) ? noop
 
 module.exports = createSet;
 
-},{"./_Set":89,"./_setToArray":223,"./noop":268}],167:[function(require,module,exports){
+},{"./_Set":92,"./_setToArray":226,"./noop":271}],170:[function(require,module,exports){
 var getNative = require('./_getNative');
 
 var defineProperty = (function() {
@@ -16046,7 +16260,7 @@ var defineProperty = (function() {
 
 module.exports = defineProperty;
 
-},{"./_getNative":176}],168:[function(require,module,exports){
+},{"./_getNative":179}],171:[function(require,module,exports){
 var SetCache = require('./_SetCache'),
     arraySome = require('./_arraySome'),
     cacheHas = require('./_cacheHas');
@@ -16131,7 +16345,7 @@ function equalArrays(array, other, bitmask, customizer, equalFunc, stack) {
 
 module.exports = equalArrays;
 
-},{"./_SetCache":90,"./_arraySome":104,"./_cacheHas":150}],169:[function(require,module,exports){
+},{"./_SetCache":93,"./_arraySome":107,"./_cacheHas":153}],172:[function(require,module,exports){
 var Symbol = require('./_Symbol'),
     Uint8Array = require('./_Uint8Array'),
     eq = require('./eq'),
@@ -16245,7 +16459,7 @@ function equalByTag(object, other, tag, bitmask, customizer, equalFunc, stack) {
 
 module.exports = equalByTag;
 
-},{"./_Symbol":92,"./_Uint8Array":93,"./_equalArrays":168,"./_mapToArray":210,"./_setToArray":223,"./eq":240}],170:[function(require,module,exports){
+},{"./_Symbol":95,"./_Uint8Array":96,"./_equalArrays":171,"./_mapToArray":213,"./_setToArray":226,"./eq":243}],173:[function(require,module,exports){
 var getAllKeys = require('./_getAllKeys');
 
 /** Used to compose bitmasks for value comparisons. */
@@ -16336,7 +16550,7 @@ function equalObjects(object, other, bitmask, customizer, equalFunc, stack) {
 
 module.exports = equalObjects;
 
-},{"./_getAllKeys":172}],171:[function(require,module,exports){
+},{"./_getAllKeys":175}],174:[function(require,module,exports){
 (function (global){
 /** Detect free variable `global` from Node.js. */
 var freeGlobal = typeof global == 'object' && global && global.Object === Object && global;
@@ -16344,7 +16558,7 @@ var freeGlobal = typeof global == 'object' && global && global.Object === Object
 module.exports = freeGlobal;
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],172:[function(require,module,exports){
+},{}],175:[function(require,module,exports){
 var baseGetAllKeys = require('./_baseGetAllKeys'),
     getSymbols = require('./_getSymbols'),
     keys = require('./keys');
@@ -16362,7 +16576,7 @@ function getAllKeys(object) {
 
 module.exports = getAllKeys;
 
-},{"./_baseGetAllKeys":120,"./_getSymbols":179,"./keys":263}],173:[function(require,module,exports){
+},{"./_baseGetAllKeys":123,"./_getSymbols":182,"./keys":266}],176:[function(require,module,exports){
 var baseGetAllKeys = require('./_baseGetAllKeys'),
     getSymbolsIn = require('./_getSymbolsIn'),
     keysIn = require('./keysIn');
@@ -16381,7 +16595,7 @@ function getAllKeysIn(object) {
 
 module.exports = getAllKeysIn;
 
-},{"./_baseGetAllKeys":120,"./_getSymbolsIn":180,"./keysIn":264}],174:[function(require,module,exports){
+},{"./_baseGetAllKeys":123,"./_getSymbolsIn":183,"./keysIn":267}],177:[function(require,module,exports){
 var isKeyable = require('./_isKeyable');
 
 /**
@@ -16401,7 +16615,7 @@ function getMapData(map, key) {
 
 module.exports = getMapData;
 
-},{"./_isKeyable":196}],175:[function(require,module,exports){
+},{"./_isKeyable":199}],178:[function(require,module,exports){
 var isStrictComparable = require('./_isStrictComparable'),
     keys = require('./keys');
 
@@ -16427,7 +16641,7 @@ function getMatchData(object) {
 
 module.exports = getMatchData;
 
-},{"./_isStrictComparable":199,"./keys":263}],176:[function(require,module,exports){
+},{"./_isStrictComparable":202,"./keys":266}],179:[function(require,module,exports){
 var baseIsNative = require('./_baseIsNative'),
     getValue = require('./_getValue');
 
@@ -16446,7 +16660,7 @@ function getNative(object, key) {
 
 module.exports = getNative;
 
-},{"./_baseIsNative":131,"./_getValue":182}],177:[function(require,module,exports){
+},{"./_baseIsNative":134,"./_getValue":185}],180:[function(require,module,exports){
 var overArg = require('./_overArg');
 
 /** Built-in value references. */
@@ -16454,7 +16668,7 @@ var getPrototype = overArg(Object.getPrototypeOf, Object);
 
 module.exports = getPrototype;
 
-},{"./_overArg":218}],178:[function(require,module,exports){
+},{"./_overArg":221}],181:[function(require,module,exports){
 var Symbol = require('./_Symbol');
 
 /** Used for built-in method references. */
@@ -16502,7 +16716,7 @@ function getRawTag(value) {
 
 module.exports = getRawTag;
 
-},{"./_Symbol":92}],179:[function(require,module,exports){
+},{"./_Symbol":95}],182:[function(require,module,exports){
 var arrayFilter = require('./_arrayFilter'),
     stubArray = require('./stubArray');
 
@@ -16534,7 +16748,7 @@ var getSymbols = !nativeGetSymbols ? stubArray : function(object) {
 
 module.exports = getSymbols;
 
-},{"./_arrayFilter":97,"./stubArray":272}],180:[function(require,module,exports){
+},{"./_arrayFilter":100,"./stubArray":275}],183:[function(require,module,exports){
 var arrayPush = require('./_arrayPush'),
     getPrototype = require('./_getPrototype'),
     getSymbols = require('./_getSymbols'),
@@ -16561,7 +16775,7 @@ var getSymbolsIn = !nativeGetSymbols ? stubArray : function(object) {
 
 module.exports = getSymbolsIn;
 
-},{"./_arrayPush":102,"./_getPrototype":177,"./_getSymbols":179,"./stubArray":272}],181:[function(require,module,exports){
+},{"./_arrayPush":105,"./_getPrototype":180,"./_getSymbols":182,"./stubArray":275}],184:[function(require,module,exports){
 var DataView = require('./_DataView'),
     Map = require('./_Map'),
     Promise = require('./_Promise'),
@@ -16621,7 +16835,7 @@ if ((DataView && getTag(new DataView(new ArrayBuffer(1))) != dataViewTag) ||
 
 module.exports = getTag;
 
-},{"./_DataView":83,"./_Map":86,"./_Promise":88,"./_Set":89,"./_WeakMap":94,"./_baseGetTag":121,"./_toSource":235}],182:[function(require,module,exports){
+},{"./_DataView":86,"./_Map":89,"./_Promise":91,"./_Set":92,"./_WeakMap":97,"./_baseGetTag":124,"./_toSource":238}],185:[function(require,module,exports){
 /**
  * Gets the value at `key` of `object`.
  *
@@ -16636,7 +16850,7 @@ function getValue(object, key) {
 
 module.exports = getValue;
 
-},{}],183:[function(require,module,exports){
+},{}],186:[function(require,module,exports){
 var castPath = require('./_castPath'),
     isArguments = require('./isArguments'),
     isArray = require('./isArray'),
@@ -16677,7 +16891,7 @@ function hasPath(object, path, hasFunc) {
 
 module.exports = hasPath;
 
-},{"./_castPath":152,"./_isIndex":194,"./_toKey":234,"./isArguments":247,"./isArray":248,"./isLength":254}],184:[function(require,module,exports){
+},{"./_castPath":155,"./_isIndex":197,"./_toKey":237,"./isArguments":250,"./isArray":251,"./isLength":257}],187:[function(require,module,exports){
 /** Used to compose unicode character classes. */
 var rsAstralRange = '\\ud800-\\udfff',
     rsComboMarksRange = '\\u0300-\\u036f',
@@ -16705,7 +16919,7 @@ function hasUnicode(string) {
 
 module.exports = hasUnicode;
 
-},{}],185:[function(require,module,exports){
+},{}],188:[function(require,module,exports){
 var nativeCreate = require('./_nativeCreate');
 
 /**
@@ -16722,7 +16936,7 @@ function hashClear() {
 
 module.exports = hashClear;
 
-},{"./_nativeCreate":213}],186:[function(require,module,exports){
+},{"./_nativeCreate":216}],189:[function(require,module,exports){
 /**
  * Removes `key` and its value from the hash.
  *
@@ -16741,7 +16955,7 @@ function hashDelete(key) {
 
 module.exports = hashDelete;
 
-},{}],187:[function(require,module,exports){
+},{}],190:[function(require,module,exports){
 var nativeCreate = require('./_nativeCreate');
 
 /** Used to stand-in for `undefined` hash values. */
@@ -16773,7 +16987,7 @@ function hashGet(key) {
 
 module.exports = hashGet;
 
-},{"./_nativeCreate":213}],188:[function(require,module,exports){
+},{"./_nativeCreate":216}],191:[function(require,module,exports){
 var nativeCreate = require('./_nativeCreate');
 
 /** Used for built-in method references. */
@@ -16798,7 +17012,7 @@ function hashHas(key) {
 
 module.exports = hashHas;
 
-},{"./_nativeCreate":213}],189:[function(require,module,exports){
+},{"./_nativeCreate":216}],192:[function(require,module,exports){
 var nativeCreate = require('./_nativeCreate');
 
 /** Used to stand-in for `undefined` hash values. */
@@ -16823,7 +17037,7 @@ function hashSet(key, value) {
 
 module.exports = hashSet;
 
-},{"./_nativeCreate":213}],190:[function(require,module,exports){
+},{"./_nativeCreate":216}],193:[function(require,module,exports){
 /** Used for built-in method references. */
 var objectProto = Object.prototype;
 
@@ -16851,7 +17065,7 @@ function initCloneArray(array) {
 
 module.exports = initCloneArray;
 
-},{}],191:[function(require,module,exports){
+},{}],194:[function(require,module,exports){
 var cloneArrayBuffer = require('./_cloneArrayBuffer'),
     cloneDataView = require('./_cloneDataView'),
     cloneRegExp = require('./_cloneRegExp'),
@@ -16930,7 +17144,7 @@ function initCloneByTag(object, tag, isDeep) {
 
 module.exports = initCloneByTag;
 
-},{"./_cloneArrayBuffer":153,"./_cloneDataView":155,"./_cloneRegExp":156,"./_cloneSymbol":157,"./_cloneTypedArray":158}],192:[function(require,module,exports){
+},{"./_cloneArrayBuffer":156,"./_cloneDataView":158,"./_cloneRegExp":159,"./_cloneSymbol":160,"./_cloneTypedArray":161}],195:[function(require,module,exports){
 var baseCreate = require('./_baseCreate'),
     getPrototype = require('./_getPrototype'),
     isPrototype = require('./_isPrototype');
@@ -16950,7 +17164,7 @@ function initCloneObject(object) {
 
 module.exports = initCloneObject;
 
-},{"./_baseCreate":112,"./_getPrototype":177,"./_isPrototype":198}],193:[function(require,module,exports){
+},{"./_baseCreate":115,"./_getPrototype":180,"./_isPrototype":201}],196:[function(require,module,exports){
 var Symbol = require('./_Symbol'),
     isArguments = require('./isArguments'),
     isArray = require('./isArray');
@@ -16972,7 +17186,7 @@ function isFlattenable(value) {
 
 module.exports = isFlattenable;
 
-},{"./_Symbol":92,"./isArguments":247,"./isArray":248}],194:[function(require,module,exports){
+},{"./_Symbol":95,"./isArguments":250,"./isArray":251}],197:[function(require,module,exports){
 /** Used as references for various `Number` constants. */
 var MAX_SAFE_INTEGER = 9007199254740991;
 
@@ -16999,7 +17213,7 @@ function isIndex(value, length) {
 
 module.exports = isIndex;
 
-},{}],195:[function(require,module,exports){
+},{}],198:[function(require,module,exports){
 var isArray = require('./isArray'),
     isSymbol = require('./isSymbol');
 
@@ -17030,7 +17244,7 @@ function isKey(value, object) {
 
 module.exports = isKey;
 
-},{"./isArray":248,"./isSymbol":260}],196:[function(require,module,exports){
+},{"./isArray":251,"./isSymbol":263}],199:[function(require,module,exports){
 /**
  * Checks if `value` is suitable for use as unique object key.
  *
@@ -17047,7 +17261,7 @@ function isKeyable(value) {
 
 module.exports = isKeyable;
 
-},{}],197:[function(require,module,exports){
+},{}],200:[function(require,module,exports){
 var coreJsData = require('./_coreJsData');
 
 /** Used to detect methods masquerading as native. */
@@ -17069,7 +17283,7 @@ function isMasked(func) {
 
 module.exports = isMasked;
 
-},{"./_coreJsData":163}],198:[function(require,module,exports){
+},{"./_coreJsData":166}],201:[function(require,module,exports){
 /** Used for built-in method references. */
 var objectProto = Object.prototype;
 
@@ -17089,7 +17303,7 @@ function isPrototype(value) {
 
 module.exports = isPrototype;
 
-},{}],199:[function(require,module,exports){
+},{}],202:[function(require,module,exports){
 var isObject = require('./isObject');
 
 /**
@@ -17106,7 +17320,7 @@ function isStrictComparable(value) {
 
 module.exports = isStrictComparable;
 
-},{"./isObject":256}],200:[function(require,module,exports){
+},{"./isObject":259}],203:[function(require,module,exports){
 /**
  * Removes all key-value entries from the list cache.
  *
@@ -17121,7 +17335,7 @@ function listCacheClear() {
 
 module.exports = listCacheClear;
 
-},{}],201:[function(require,module,exports){
+},{}],204:[function(require,module,exports){
 var assocIndexOf = require('./_assocIndexOf');
 
 /** Used for built-in method references. */
@@ -17158,7 +17372,7 @@ function listCacheDelete(key) {
 
 module.exports = listCacheDelete;
 
-},{"./_assocIndexOf":107}],202:[function(require,module,exports){
+},{"./_assocIndexOf":110}],205:[function(require,module,exports){
 var assocIndexOf = require('./_assocIndexOf');
 
 /**
@@ -17179,7 +17393,7 @@ function listCacheGet(key) {
 
 module.exports = listCacheGet;
 
-},{"./_assocIndexOf":107}],203:[function(require,module,exports){
+},{"./_assocIndexOf":110}],206:[function(require,module,exports){
 var assocIndexOf = require('./_assocIndexOf');
 
 /**
@@ -17197,7 +17411,7 @@ function listCacheHas(key) {
 
 module.exports = listCacheHas;
 
-},{"./_assocIndexOf":107}],204:[function(require,module,exports){
+},{"./_assocIndexOf":110}],207:[function(require,module,exports){
 var assocIndexOf = require('./_assocIndexOf');
 
 /**
@@ -17225,7 +17439,7 @@ function listCacheSet(key, value) {
 
 module.exports = listCacheSet;
 
-},{"./_assocIndexOf":107}],205:[function(require,module,exports){
+},{"./_assocIndexOf":110}],208:[function(require,module,exports){
 var Hash = require('./_Hash'),
     ListCache = require('./_ListCache'),
     Map = require('./_Map');
@@ -17248,7 +17462,7 @@ function mapCacheClear() {
 
 module.exports = mapCacheClear;
 
-},{"./_Hash":84,"./_ListCache":85,"./_Map":86}],206:[function(require,module,exports){
+},{"./_Hash":87,"./_ListCache":88,"./_Map":89}],209:[function(require,module,exports){
 var getMapData = require('./_getMapData');
 
 /**
@@ -17268,7 +17482,7 @@ function mapCacheDelete(key) {
 
 module.exports = mapCacheDelete;
 
-},{"./_getMapData":174}],207:[function(require,module,exports){
+},{"./_getMapData":177}],210:[function(require,module,exports){
 var getMapData = require('./_getMapData');
 
 /**
@@ -17286,7 +17500,7 @@ function mapCacheGet(key) {
 
 module.exports = mapCacheGet;
 
-},{"./_getMapData":174}],208:[function(require,module,exports){
+},{"./_getMapData":177}],211:[function(require,module,exports){
 var getMapData = require('./_getMapData');
 
 /**
@@ -17304,7 +17518,7 @@ function mapCacheHas(key) {
 
 module.exports = mapCacheHas;
 
-},{"./_getMapData":174}],209:[function(require,module,exports){
+},{"./_getMapData":177}],212:[function(require,module,exports){
 var getMapData = require('./_getMapData');
 
 /**
@@ -17328,7 +17542,7 @@ function mapCacheSet(key, value) {
 
 module.exports = mapCacheSet;
 
-},{"./_getMapData":174}],210:[function(require,module,exports){
+},{"./_getMapData":177}],213:[function(require,module,exports){
 /**
  * Converts `map` to its key-value pairs.
  *
@@ -17348,7 +17562,7 @@ function mapToArray(map) {
 
 module.exports = mapToArray;
 
-},{}],211:[function(require,module,exports){
+},{}],214:[function(require,module,exports){
 /**
  * A specialized version of `matchesProperty` for source values suitable
  * for strict equality comparisons, i.e. `===`.
@@ -17370,7 +17584,7 @@ function matchesStrictComparable(key, srcValue) {
 
 module.exports = matchesStrictComparable;
 
-},{}],212:[function(require,module,exports){
+},{}],215:[function(require,module,exports){
 var memoize = require('./memoize');
 
 /** Used as the maximum memoize cache size. */
@@ -17398,7 +17612,7 @@ function memoizeCapped(func) {
 
 module.exports = memoizeCapped;
 
-},{"./memoize":267}],213:[function(require,module,exports){
+},{"./memoize":270}],216:[function(require,module,exports){
 var getNative = require('./_getNative');
 
 /* Built-in method references that are verified to be native. */
@@ -17406,7 +17620,7 @@ var nativeCreate = getNative(Object, 'create');
 
 module.exports = nativeCreate;
 
-},{"./_getNative":176}],214:[function(require,module,exports){
+},{"./_getNative":179}],217:[function(require,module,exports){
 var overArg = require('./_overArg');
 
 /* Built-in method references for those with the same name as other `lodash` methods. */
@@ -17414,7 +17628,7 @@ var nativeKeys = overArg(Object.keys, Object);
 
 module.exports = nativeKeys;
 
-},{"./_overArg":218}],215:[function(require,module,exports){
+},{"./_overArg":221}],218:[function(require,module,exports){
 /**
  * This function is like
  * [`Object.keys`](http://ecma-international.org/ecma-262/7.0/#sec-object.keys)
@@ -17436,7 +17650,7 @@ function nativeKeysIn(object) {
 
 module.exports = nativeKeysIn;
 
-},{}],216:[function(require,module,exports){
+},{}],219:[function(require,module,exports){
 var freeGlobal = require('./_freeGlobal');
 
 /** Detect free variable `exports`. */
@@ -17468,7 +17682,7 @@ var nodeUtil = (function() {
 
 module.exports = nodeUtil;
 
-},{"./_freeGlobal":171}],217:[function(require,module,exports){
+},{"./_freeGlobal":174}],220:[function(require,module,exports){
 /** Used for built-in method references. */
 var objectProto = Object.prototype;
 
@@ -17492,7 +17706,7 @@ function objectToString(value) {
 
 module.exports = objectToString;
 
-},{}],218:[function(require,module,exports){
+},{}],221:[function(require,module,exports){
 /**
  * Creates a unary function that invokes `func` with its argument transformed.
  *
@@ -17509,7 +17723,7 @@ function overArg(func, transform) {
 
 module.exports = overArg;
 
-},{}],219:[function(require,module,exports){
+},{}],222:[function(require,module,exports){
 var apply = require('./_apply');
 
 /* Built-in method references for those with the same name as other `lodash` methods. */
@@ -17547,7 +17761,7 @@ function overRest(func, start, transform) {
 
 module.exports = overRest;
 
-},{"./_apply":95}],220:[function(require,module,exports){
+},{"./_apply":98}],223:[function(require,module,exports){
 var freeGlobal = require('./_freeGlobal');
 
 /** Detect free variable `self`. */
@@ -17558,7 +17772,7 @@ var root = freeGlobal || freeSelf || Function('return this')();
 
 module.exports = root;
 
-},{"./_freeGlobal":171}],221:[function(require,module,exports){
+},{"./_freeGlobal":174}],224:[function(require,module,exports){
 /** Used to stand-in for `undefined` hash values. */
 var HASH_UNDEFINED = '__lodash_hash_undefined__';
 
@@ -17579,7 +17793,7 @@ function setCacheAdd(value) {
 
 module.exports = setCacheAdd;
 
-},{}],222:[function(require,module,exports){
+},{}],225:[function(require,module,exports){
 /**
  * Checks if `value` is in the array cache.
  *
@@ -17595,7 +17809,7 @@ function setCacheHas(value) {
 
 module.exports = setCacheHas;
 
-},{}],223:[function(require,module,exports){
+},{}],226:[function(require,module,exports){
 /**
  * Converts `set` to an array of its values.
  *
@@ -17615,7 +17829,7 @@ function setToArray(set) {
 
 module.exports = setToArray;
 
-},{}],224:[function(require,module,exports){
+},{}],227:[function(require,module,exports){
 var baseSetToString = require('./_baseSetToString'),
     shortOut = require('./_shortOut');
 
@@ -17631,7 +17845,7 @@ var setToString = shortOut(baseSetToString);
 
 module.exports = setToString;
 
-},{"./_baseSetToString":144,"./_shortOut":225}],225:[function(require,module,exports){
+},{"./_baseSetToString":147,"./_shortOut":228}],228:[function(require,module,exports){
 /** Used to detect hot functions by number of calls within a span of milliseconds. */
 var HOT_COUNT = 800,
     HOT_SPAN = 16;
@@ -17670,7 +17884,7 @@ function shortOut(func) {
 
 module.exports = shortOut;
 
-},{}],226:[function(require,module,exports){
+},{}],229:[function(require,module,exports){
 var ListCache = require('./_ListCache');
 
 /**
@@ -17687,7 +17901,7 @@ function stackClear() {
 
 module.exports = stackClear;
 
-},{"./_ListCache":85}],227:[function(require,module,exports){
+},{"./_ListCache":88}],230:[function(require,module,exports){
 /**
  * Removes `key` and its value from the stack.
  *
@@ -17707,7 +17921,7 @@ function stackDelete(key) {
 
 module.exports = stackDelete;
 
-},{}],228:[function(require,module,exports){
+},{}],231:[function(require,module,exports){
 /**
  * Gets the stack value for `key`.
  *
@@ -17723,7 +17937,7 @@ function stackGet(key) {
 
 module.exports = stackGet;
 
-},{}],229:[function(require,module,exports){
+},{}],232:[function(require,module,exports){
 /**
  * Checks if a stack value for `key` exists.
  *
@@ -17739,7 +17953,7 @@ function stackHas(key) {
 
 module.exports = stackHas;
 
-},{}],230:[function(require,module,exports){
+},{}],233:[function(require,module,exports){
 var ListCache = require('./_ListCache'),
     Map = require('./_Map'),
     MapCache = require('./_MapCache');
@@ -17775,7 +17989,7 @@ function stackSet(key, value) {
 
 module.exports = stackSet;
 
-},{"./_ListCache":85,"./_Map":86,"./_MapCache":87}],231:[function(require,module,exports){
+},{"./_ListCache":88,"./_Map":89,"./_MapCache":90}],234:[function(require,module,exports){
 /**
  * A specialized version of `_.indexOf` which performs strict equality
  * comparisons of values, i.e. `===`.
@@ -17800,7 +18014,7 @@ function strictIndexOf(array, value, fromIndex) {
 
 module.exports = strictIndexOf;
 
-},{}],232:[function(require,module,exports){
+},{}],235:[function(require,module,exports){
 var asciiSize = require('./_asciiSize'),
     hasUnicode = require('./_hasUnicode'),
     unicodeSize = require('./_unicodeSize');
@@ -17820,7 +18034,7 @@ function stringSize(string) {
 
 module.exports = stringSize;
 
-},{"./_asciiSize":105,"./_hasUnicode":184,"./_unicodeSize":236}],233:[function(require,module,exports){
+},{"./_asciiSize":108,"./_hasUnicode":187,"./_unicodeSize":239}],236:[function(require,module,exports){
 var memoizeCapped = require('./_memoizeCapped');
 
 /** Used to match property names within property paths. */
@@ -17849,7 +18063,7 @@ var stringToPath = memoizeCapped(function(string) {
 
 module.exports = stringToPath;
 
-},{"./_memoizeCapped":212}],234:[function(require,module,exports){
+},{"./_memoizeCapped":215}],237:[function(require,module,exports){
 var isSymbol = require('./isSymbol');
 
 /** Used as references for various `Number` constants. */
@@ -17872,7 +18086,7 @@ function toKey(value) {
 
 module.exports = toKey;
 
-},{"./isSymbol":260}],235:[function(require,module,exports){
+},{"./isSymbol":263}],238:[function(require,module,exports){
 /** Used for built-in method references. */
 var funcProto = Function.prototype;
 
@@ -17900,7 +18114,7 @@ function toSource(func) {
 
 module.exports = toSource;
 
-},{}],236:[function(require,module,exports){
+},{}],239:[function(require,module,exports){
 /** Used to compose unicode character classes. */
 var rsAstralRange = '\\ud800-\\udfff',
     rsComboMarksRange = '\\u0300-\\u036f',
@@ -17946,7 +18160,7 @@ function unicodeSize(string) {
 
 module.exports = unicodeSize;
 
-},{}],237:[function(require,module,exports){
+},{}],240:[function(require,module,exports){
 var baseClone = require('./_baseClone');
 
 /** Used to compose bitmasks for cloning. */
@@ -17984,7 +18198,7 @@ function clone(value) {
 
 module.exports = clone;
 
-},{"./_baseClone":111}],238:[function(require,module,exports){
+},{"./_baseClone":114}],241:[function(require,module,exports){
 /**
  * Creates a function that returns `value`.
  *
@@ -18012,10 +18226,10 @@ function constant(value) {
 
 module.exports = constant;
 
-},{}],239:[function(require,module,exports){
+},{}],242:[function(require,module,exports){
 module.exports = require('./forEach');
 
-},{"./forEach":242}],240:[function(require,module,exports){
+},{"./forEach":245}],243:[function(require,module,exports){
 /**
  * Performs a
  * [`SameValueZero`](http://ecma-international.org/ecma-262/7.0/#sec-samevaluezero)
@@ -18054,7 +18268,7 @@ function eq(value, other) {
 
 module.exports = eq;
 
-},{}],241:[function(require,module,exports){
+},{}],244:[function(require,module,exports){
 var arrayFilter = require('./_arrayFilter'),
     baseFilter = require('./_baseFilter'),
     baseIteratee = require('./_baseIteratee'),
@@ -18104,7 +18318,7 @@ function filter(collection, predicate) {
 
 module.exports = filter;
 
-},{"./_arrayFilter":97,"./_baseFilter":114,"./_baseIteratee":134,"./isArray":248}],242:[function(require,module,exports){
+},{"./_arrayFilter":100,"./_baseFilter":117,"./_baseIteratee":137,"./isArray":251}],245:[function(require,module,exports){
 var arrayEach = require('./_arrayEach'),
     baseEach = require('./_baseEach'),
     castFunction = require('./_castFunction'),
@@ -18147,7 +18361,7 @@ function forEach(collection, iteratee) {
 
 module.exports = forEach;
 
-},{"./_arrayEach":96,"./_baseEach":113,"./_castFunction":151,"./isArray":248}],243:[function(require,module,exports){
+},{"./_arrayEach":99,"./_baseEach":116,"./_castFunction":154,"./isArray":251}],246:[function(require,module,exports){
 var baseGet = require('./_baseGet');
 
 /**
@@ -18182,7 +18396,7 @@ function get(object, path, defaultValue) {
 
 module.exports = get;
 
-},{"./_baseGet":119}],244:[function(require,module,exports){
+},{"./_baseGet":122}],247:[function(require,module,exports){
 var baseHas = require('./_baseHas'),
     hasPath = require('./_hasPath');
 
@@ -18219,7 +18433,7 @@ function has(object, path) {
 
 module.exports = has;
 
-},{"./_baseHas":122,"./_hasPath":183}],245:[function(require,module,exports){
+},{"./_baseHas":125,"./_hasPath":186}],248:[function(require,module,exports){
 var baseHasIn = require('./_baseHasIn'),
     hasPath = require('./_hasPath');
 
@@ -18255,7 +18469,7 @@ function hasIn(object, path) {
 
 module.exports = hasIn;
 
-},{"./_baseHasIn":123,"./_hasPath":183}],246:[function(require,module,exports){
+},{"./_baseHasIn":126,"./_hasPath":186}],249:[function(require,module,exports){
 /**
  * This method returns the first argument it receives.
  *
@@ -18278,7 +18492,7 @@ function identity(value) {
 
 module.exports = identity;
 
-},{}],247:[function(require,module,exports){
+},{}],250:[function(require,module,exports){
 var baseIsArguments = require('./_baseIsArguments'),
     isObjectLike = require('./isObjectLike');
 
@@ -18316,7 +18530,7 @@ var isArguments = baseIsArguments(function() { return arguments; }()) ? baseIsAr
 
 module.exports = isArguments;
 
-},{"./_baseIsArguments":125,"./isObjectLike":257}],248:[function(require,module,exports){
+},{"./_baseIsArguments":128,"./isObjectLike":260}],251:[function(require,module,exports){
 /**
  * Checks if `value` is classified as an `Array` object.
  *
@@ -18344,7 +18558,7 @@ var isArray = Array.isArray;
 
 module.exports = isArray;
 
-},{}],249:[function(require,module,exports){
+},{}],252:[function(require,module,exports){
 var isFunction = require('./isFunction'),
     isLength = require('./isLength');
 
@@ -18379,7 +18593,7 @@ function isArrayLike(value) {
 
 module.exports = isArrayLike;
 
-},{"./isFunction":253,"./isLength":254}],250:[function(require,module,exports){
+},{"./isFunction":256,"./isLength":257}],253:[function(require,module,exports){
 var isArrayLike = require('./isArrayLike'),
     isObjectLike = require('./isObjectLike');
 
@@ -18414,7 +18628,7 @@ function isArrayLikeObject(value) {
 
 module.exports = isArrayLikeObject;
 
-},{"./isArrayLike":249,"./isObjectLike":257}],251:[function(require,module,exports){
+},{"./isArrayLike":252,"./isObjectLike":260}],254:[function(require,module,exports){
 var root = require('./_root'),
     stubFalse = require('./stubFalse');
 
@@ -18454,7 +18668,7 @@ var isBuffer = nativeIsBuffer || stubFalse;
 
 module.exports = isBuffer;
 
-},{"./_root":220,"./stubFalse":273}],252:[function(require,module,exports){
+},{"./_root":223,"./stubFalse":276}],255:[function(require,module,exports){
 var baseKeys = require('./_baseKeys'),
     getTag = require('./_getTag'),
     isArguments = require('./isArguments'),
@@ -18533,7 +18747,7 @@ function isEmpty(value) {
 
 module.exports = isEmpty;
 
-},{"./_baseKeys":135,"./_getTag":181,"./_isPrototype":198,"./isArguments":247,"./isArray":248,"./isArrayLike":249,"./isBuffer":251,"./isTypedArray":261}],253:[function(require,module,exports){
+},{"./_baseKeys":138,"./_getTag":184,"./_isPrototype":201,"./isArguments":250,"./isArray":251,"./isArrayLike":252,"./isBuffer":254,"./isTypedArray":264}],256:[function(require,module,exports){
 var baseGetTag = require('./_baseGetTag'),
     isObject = require('./isObject');
 
@@ -18572,7 +18786,7 @@ function isFunction(value) {
 
 module.exports = isFunction;
 
-},{"./_baseGetTag":121,"./isObject":256}],254:[function(require,module,exports){
+},{"./_baseGetTag":124,"./isObject":259}],257:[function(require,module,exports){
 /** Used as references for various `Number` constants. */
 var MAX_SAFE_INTEGER = 9007199254740991;
 
@@ -18609,7 +18823,7 @@ function isLength(value) {
 
 module.exports = isLength;
 
-},{}],255:[function(require,module,exports){
+},{}],258:[function(require,module,exports){
 var baseIsMap = require('./_baseIsMap'),
     baseUnary = require('./_baseUnary'),
     nodeUtil = require('./_nodeUtil');
@@ -18638,7 +18852,7 @@ var isMap = nodeIsMap ? baseUnary(nodeIsMap) : baseIsMap;
 
 module.exports = isMap;
 
-},{"./_baseIsMap":128,"./_baseUnary":147,"./_nodeUtil":216}],256:[function(require,module,exports){
+},{"./_baseIsMap":131,"./_baseUnary":150,"./_nodeUtil":219}],259:[function(require,module,exports){
 /**
  * Checks if `value` is the
  * [language type](http://www.ecma-international.org/ecma-262/7.0/#sec-ecmascript-language-types)
@@ -18671,7 +18885,7 @@ function isObject(value) {
 
 module.exports = isObject;
 
-},{}],257:[function(require,module,exports){
+},{}],260:[function(require,module,exports){
 /**
  * Checks if `value` is object-like. A value is object-like if it's not `null`
  * and has a `typeof` result of "object".
@@ -18702,7 +18916,7 @@ function isObjectLike(value) {
 
 module.exports = isObjectLike;
 
-},{}],258:[function(require,module,exports){
+},{}],261:[function(require,module,exports){
 var baseIsSet = require('./_baseIsSet'),
     baseUnary = require('./_baseUnary'),
     nodeUtil = require('./_nodeUtil');
@@ -18731,7 +18945,7 @@ var isSet = nodeIsSet ? baseUnary(nodeIsSet) : baseIsSet;
 
 module.exports = isSet;
 
-},{"./_baseIsSet":132,"./_baseUnary":147,"./_nodeUtil":216}],259:[function(require,module,exports){
+},{"./_baseIsSet":135,"./_baseUnary":150,"./_nodeUtil":219}],262:[function(require,module,exports){
 var baseGetTag = require('./_baseGetTag'),
     isArray = require('./isArray'),
     isObjectLike = require('./isObjectLike');
@@ -18763,7 +18977,7 @@ function isString(value) {
 
 module.exports = isString;
 
-},{"./_baseGetTag":121,"./isArray":248,"./isObjectLike":257}],260:[function(require,module,exports){
+},{"./_baseGetTag":124,"./isArray":251,"./isObjectLike":260}],263:[function(require,module,exports){
 var baseGetTag = require('./_baseGetTag'),
     isObjectLike = require('./isObjectLike');
 
@@ -18794,7 +19008,7 @@ function isSymbol(value) {
 
 module.exports = isSymbol;
 
-},{"./_baseGetTag":121,"./isObjectLike":257}],261:[function(require,module,exports){
+},{"./_baseGetTag":124,"./isObjectLike":260}],264:[function(require,module,exports){
 var baseIsTypedArray = require('./_baseIsTypedArray'),
     baseUnary = require('./_baseUnary'),
     nodeUtil = require('./_nodeUtil');
@@ -18823,7 +19037,7 @@ var isTypedArray = nodeIsTypedArray ? baseUnary(nodeIsTypedArray) : baseIsTypedA
 
 module.exports = isTypedArray;
 
-},{"./_baseIsTypedArray":133,"./_baseUnary":147,"./_nodeUtil":216}],262:[function(require,module,exports){
+},{"./_baseIsTypedArray":136,"./_baseUnary":150,"./_nodeUtil":219}],265:[function(require,module,exports){
 /**
  * Checks if `value` is `undefined`.
  *
@@ -18847,7 +19061,7 @@ function isUndefined(value) {
 
 module.exports = isUndefined;
 
-},{}],263:[function(require,module,exports){
+},{}],266:[function(require,module,exports){
 var arrayLikeKeys = require('./_arrayLikeKeys'),
     baseKeys = require('./_baseKeys'),
     isArrayLike = require('./isArrayLike');
@@ -18886,7 +19100,7 @@ function keys(object) {
 
 module.exports = keys;
 
-},{"./_arrayLikeKeys":100,"./_baseKeys":135,"./isArrayLike":249}],264:[function(require,module,exports){
+},{"./_arrayLikeKeys":103,"./_baseKeys":138,"./isArrayLike":252}],267:[function(require,module,exports){
 var arrayLikeKeys = require('./_arrayLikeKeys'),
     baseKeysIn = require('./_baseKeysIn'),
     isArrayLike = require('./isArrayLike');
@@ -18920,12 +19134,12 @@ function keysIn(object) {
 
 module.exports = keysIn;
 
-},{"./_arrayLikeKeys":100,"./_baseKeysIn":136,"./isArrayLike":249}],265:[function(require,module,exports){
+},{"./_arrayLikeKeys":103,"./_baseKeysIn":139,"./isArrayLike":252}],268:[function(require,module,exports){
 (function (global){
 /**
  * @license
  * Lodash <https://lodash.com/>
- * Copyright JS Foundation and other contributors <https://js.foundation/>
+ * Copyright OpenJS Foundation and other contributors <https://openjsf.org/>
  * Released under MIT license <https://lodash.com/license>
  * Based on Underscore.js 1.8.3 <http://underscorejs.org/LICENSE>
  * Copyright Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
@@ -18936,7 +19150,7 @@ module.exports = keysIn;
   var undefined;
 
   /** Used as the semantic version number. */
-  var VERSION = '4.17.11';
+  var VERSION = '4.17.15';
 
   /** Used as the size to enable large array optimizations. */
   var LARGE_ARRAY_SIZE = 200;
@@ -21595,16 +21809,10 @@ module.exports = keysIn;
         value.forEach(function(subValue) {
           result.add(baseClone(subValue, bitmask, customizer, subValue, value, stack));
         });
-
-        return result;
-      }
-
-      if (isMap(value)) {
+      } else if (isMap(value)) {
         value.forEach(function(subValue, key) {
           result.set(key, baseClone(subValue, bitmask, customizer, key, value, stack));
         });
-
-        return result;
       }
 
       var keysFunc = isFull
@@ -22528,8 +22736,8 @@ module.exports = keysIn;
         return;
       }
       baseFor(source, function(srcValue, key) {
+        stack || (stack = new Stack);
         if (isObject(srcValue)) {
-          stack || (stack = new Stack);
           baseMergeDeep(object, source, key, srcIndex, baseMerge, customizer, stack);
         }
         else {
@@ -24346,7 +24554,7 @@ module.exports = keysIn;
       return function(number, precision) {
         number = toNumber(number);
         precision = precision == null ? 0 : nativeMin(toInteger(precision), 292);
-        if (precision) {
+        if (precision && nativeIsFinite(number)) {
           // Shift with exponential notation to avoid floating-point issues.
           // See [MDN](https://mdn.io/round#Examples) for more details.
           var pair = (toString(number) + 'e').split('e'),
@@ -25529,7 +25737,7 @@ module.exports = keysIn;
     }
 
     /**
-     * Gets the value at `key`, unless `key` is "__proto__".
+     * Gets the value at `key`, unless `key` is "__proto__" or "constructor".
      *
      * @private
      * @param {Object} object The object to query.
@@ -25537,6 +25745,10 @@ module.exports = keysIn;
      * @returns {*} Returns the property value.
      */
     function safeGet(object, key) {
+      if (key === 'constructor' && typeof object[key] === 'function') {
+        return;
+      }
+
       if (key == '__proto__') {
         return;
       }
@@ -29337,6 +29549,7 @@ module.exports = keysIn;
           }
           if (maxing) {
             // Handle invocations in a tight loop.
+            clearTimeout(timerId);
             timerId = setTimeout(timerExpired, wait);
             return invokeFunc(lastCallTime);
           }
@@ -33723,9 +33936,12 @@ module.exports = keysIn;
       , 'g');
 
       // Use a sourceURL for easier debugging.
+      // The sourceURL gets injected into the source that's eval-ed, so be careful
+      // with lookup (in case of e.g. prototype pollution), and strip newlines if any.
+      // A newline wouldn't be a valid sourceURL anyway, and it'd enable code injection.
       var sourceURL = '//# sourceURL=' +
-        ('sourceURL' in options
-          ? options.sourceURL
+        (hasOwnProperty.call(options, 'sourceURL')
+          ? (options.sourceURL + '').replace(/[\r\n]/g, ' ')
           : ('lodash.templateSources[' + (++templateCounter) + ']')
         ) + '\n';
 
@@ -33758,7 +33974,9 @@ module.exports = keysIn;
 
       // If `variable` is not specified wrap a with-statement around the generated
       // code to add the data object to the top of the scope chain.
-      var variable = options.variable;
+      // Like with sourceURL, we take care to not check the option's prototype,
+      // as this configuration is a code injection vector.
+      var variable = hasOwnProperty.call(options, 'variable') && options.variable;
       if (!variable) {
         source = 'with (obj) {\n' + source + '\n}\n';
       }
@@ -35963,10 +36181,11 @@ module.exports = keysIn;
     baseForOwn(LazyWrapper.prototype, function(func, methodName) {
       var lodashFunc = lodash[methodName];
       if (lodashFunc) {
-        var key = (lodashFunc.name + ''),
-            names = realNames[key] || (realNames[key] = []);
-
-        names.push({ 'name': methodName, 'func': lodashFunc });
+        var key = lodashFunc.name + '';
+        if (!hasOwnProperty.call(realNames, key)) {
+          realNames[key] = [];
+        }
+        realNames[key].push({ 'name': methodName, 'func': lodashFunc });
       }
     });
 
@@ -36031,7 +36250,7 @@ module.exports = keysIn;
 }.call(this));
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],266:[function(require,module,exports){
+},{}],269:[function(require,module,exports){
 var arrayMap = require('./_arrayMap'),
     baseIteratee = require('./_baseIteratee'),
     baseMap = require('./_baseMap'),
@@ -36086,7 +36305,7 @@ function map(collection, iteratee) {
 
 module.exports = map;
 
-},{"./_arrayMap":101,"./_baseIteratee":134,"./_baseMap":137,"./isArray":248}],267:[function(require,module,exports){
+},{"./_arrayMap":104,"./_baseIteratee":137,"./_baseMap":140,"./isArray":251}],270:[function(require,module,exports){
 var MapCache = require('./_MapCache');
 
 /** Error message constants. */
@@ -36161,7 +36380,7 @@ memoize.Cache = MapCache;
 
 module.exports = memoize;
 
-},{"./_MapCache":87}],268:[function(require,module,exports){
+},{"./_MapCache":90}],271:[function(require,module,exports){
 /**
  * This method returns `undefined`.
  *
@@ -36180,7 +36399,7 @@ function noop() {
 
 module.exports = noop;
 
-},{}],269:[function(require,module,exports){
+},{}],272:[function(require,module,exports){
 var baseProperty = require('./_baseProperty'),
     basePropertyDeep = require('./_basePropertyDeep'),
     isKey = require('./_isKey'),
@@ -36214,7 +36433,7 @@ function property(path) {
 
 module.exports = property;
 
-},{"./_baseProperty":140,"./_basePropertyDeep":141,"./_isKey":195,"./_toKey":234}],270:[function(require,module,exports){
+},{"./_baseProperty":143,"./_basePropertyDeep":144,"./_isKey":198,"./_toKey":237}],273:[function(require,module,exports){
 var arrayReduce = require('./_arrayReduce'),
     baseEach = require('./_baseEach'),
     baseIteratee = require('./_baseIteratee'),
@@ -36267,7 +36486,7 @@ function reduce(collection, iteratee, accumulator) {
 
 module.exports = reduce;
 
-},{"./_arrayReduce":103,"./_baseEach":113,"./_baseIteratee":134,"./_baseReduce":142,"./isArray":248}],271:[function(require,module,exports){
+},{"./_arrayReduce":106,"./_baseEach":116,"./_baseIteratee":137,"./_baseReduce":145,"./isArray":251}],274:[function(require,module,exports){
 var baseKeys = require('./_baseKeys'),
     getTag = require('./_getTag'),
     isArrayLike = require('./isArrayLike'),
@@ -36315,7 +36534,7 @@ function size(collection) {
 
 module.exports = size;
 
-},{"./_baseKeys":135,"./_getTag":181,"./_stringSize":232,"./isArrayLike":249,"./isString":259}],272:[function(require,module,exports){
+},{"./_baseKeys":138,"./_getTag":184,"./_stringSize":235,"./isArrayLike":252,"./isString":262}],275:[function(require,module,exports){
 /**
  * This method returns a new empty array.
  *
@@ -36340,7 +36559,7 @@ function stubArray() {
 
 module.exports = stubArray;
 
-},{}],273:[function(require,module,exports){
+},{}],276:[function(require,module,exports){
 /**
  * This method returns `false`.
  *
@@ -36360,7 +36579,7 @@ function stubFalse() {
 
 module.exports = stubFalse;
 
-},{}],274:[function(require,module,exports){
+},{}],277:[function(require,module,exports){
 var baseToString = require('./_baseToString');
 
 /**
@@ -36390,7 +36609,7 @@ function toString(value) {
 
 module.exports = toString;
 
-},{"./_baseToString":146}],275:[function(require,module,exports){
+},{"./_baseToString":149}],278:[function(require,module,exports){
 var arrayEach = require('./_arrayEach'),
     baseCreate = require('./_baseCreate'),
     baseForOwn = require('./_baseForOwn'),
@@ -36457,7 +36676,7 @@ function transform(object, iteratee, accumulator) {
 
 module.exports = transform;
 
-},{"./_arrayEach":96,"./_baseCreate":112,"./_baseForOwn":118,"./_baseIteratee":134,"./_getPrototype":177,"./isArray":248,"./isBuffer":251,"./isFunction":253,"./isObject":256,"./isTypedArray":261}],276:[function(require,module,exports){
+},{"./_arrayEach":99,"./_baseCreate":115,"./_baseForOwn":121,"./_baseIteratee":137,"./_getPrototype":180,"./isArray":251,"./isBuffer":254,"./isFunction":256,"./isObject":259,"./isTypedArray":264}],279:[function(require,module,exports){
 var baseFlatten = require('./_baseFlatten'),
     baseRest = require('./_baseRest'),
     baseUniq = require('./_baseUniq'),
@@ -36485,7 +36704,7 @@ var union = baseRest(function(arrays) {
 
 module.exports = union;
 
-},{"./_baseFlatten":116,"./_baseRest":143,"./_baseUniq":148,"./isArrayLikeObject":250}],277:[function(require,module,exports){
+},{"./_baseFlatten":119,"./_baseRest":146,"./_baseUniq":151,"./isArrayLikeObject":253}],280:[function(require,module,exports){
 var baseValues = require('./_baseValues'),
     keys = require('./keys');
 
@@ -36521,7 +36740,7 @@ function values(object) {
 
 module.exports = values;
 
-},{"./_baseValues":149,"./keys":263}],278:[function(require,module,exports){
+},{"./_baseValues":152,"./keys":266}],281:[function(require,module,exports){
 (function (global,setImmediate){
 /*! Native Promise Only
     v0.8.1 (c) Kyle Simpson
@@ -36898,7 +37117,7 @@ module.exports = values;
 });
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},require("timers").setImmediate)
-},{"timers":295}],279:[function(require,module,exports){
+},{"timers":298}],282:[function(require,module,exports){
 'use strict';
 
 function isObject (o) {
@@ -36987,6 +37206,7 @@ function stringify (a, indentation) {
             case 'string':
             case 'number':
             case 'boolean':
+            case 'undefined':
                 body += e + cr;
                 return;
             }
@@ -37011,7 +37231,7 @@ function stringify (a, indentation) {
 
 module.exports = stringify;
 
-},{}],280:[function(require,module,exports){
+},{}],283:[function(require,module,exports){
 (function (process){
 // .dirname, .basename, and .extname methods are extracted from Node.js v8.11.1,
 // backported and transplited with Babel, with backwards-compat fixes
@@ -37317,7 +37537,7 @@ var substr = 'ab'.substr(-1) === 'b'
 ;
 
 }).call(this,require('_process'))
-},{"_process":284}],281:[function(require,module,exports){
+},{"_process":287}],284:[function(require,module,exports){
 /*
  * The MIT License (MIT)
  *
@@ -37522,7 +37742,7 @@ module.exports.load = function (location, options) {
   return allTasks;
 };
 
-},{"./lib/loaders/file":282,"./lib/loaders/http":283,"native-promise-only":278}],282:[function(require,module,exports){
+},{"./lib/loaders/file":285,"./lib/loaders/http":286,"native-promise-only":281}],285:[function(require,module,exports){
 /*
  * The MIT License (MIT)
  *
@@ -37573,7 +37793,7 @@ module.exports.load = function () {
   }
 };
 
-},{}],283:[function(require,module,exports){
+},{}],286:[function(require,module,exports){
 (function (process){
 /* eslint-env node, browser */
 
@@ -37674,7 +37894,7 @@ module.exports.load = function (location, options, callback) {
 };
 
 }).call(this,require('_process'))
-},{"_process":284,"superagent":290}],284:[function(require,module,exports){
+},{"_process":287,"superagent":293}],287:[function(require,module,exports){
 // shim for using process in browser
 var process = module.exports = {};
 
@@ -37860,7 +38080,7 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],285:[function(require,module,exports){
+},{}],288:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -37946,7 +38166,7 @@ var isArray = Array.isArray || function (xs) {
   return Object.prototype.toString.call(xs) === '[object Array]';
 };
 
-},{}],286:[function(require,module,exports){
+},{}],289:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -38033,13 +38253,13 @@ var objectKeys = Object.keys || function (obj) {
   return res;
 };
 
-},{}],287:[function(require,module,exports){
+},{}],290:[function(require,module,exports){
 'use strict';
 
 exports.decode = exports.parse = require('./decode');
 exports.encode = exports.stringify = require('./encode');
 
-},{"./decode":285,"./encode":286}],288:[function(require,module,exports){
+},{"./decode":288,"./encode":289}],291:[function(require,module,exports){
 'use strict';
 module.exports = input => {
 	const isExtendedLengthPath = /^\\\\\?\\/.test(input);
@@ -38052,7 +38272,7 @@ module.exports = input => {
 	return input.replace(/\\/g, '/');
 };
 
-},{}],289:[function(require,module,exports){
+},{}],292:[function(require,module,exports){
 function Agent() {
   this._defaults = [];
 }
@@ -38074,7 +38294,7 @@ Agent.prototype._setDefaults = function(req) {
 
 module.exports = Agent;
 
-},{}],290:[function(require,module,exports){
+},{}],293:[function(require,module,exports){
 /**
  * Root reference for iframes.
  */
@@ -38996,7 +39216,7 @@ request.put = function(url, data, fn) {
   return req;
 };
 
-},{"./agent-base":289,"./is-object":291,"./request-base":292,"./response-base":293,"component-emitter":49}],291:[function(require,module,exports){
+},{"./agent-base":292,"./is-object":294,"./request-base":295,"./response-base":296,"component-emitter":52}],294:[function(require,module,exports){
 'use strict';
 
 /**
@@ -39013,7 +39233,7 @@ function isObject(obj) {
 
 module.exports = isObject;
 
-},{}],292:[function(require,module,exports){
+},{}],295:[function(require,module,exports){
 'use strict';
 
 /**
@@ -39709,7 +39929,7 @@ RequestBase.prototype._setTimeouts = function() {
   }
 };
 
-},{"./is-object":291}],293:[function(require,module,exports){
+},{"./is-object":294}],296:[function(require,module,exports){
 'use strict';
 
 /**
@@ -39847,7 +40067,7 @@ ResponseBase.prototype._setStatusProperties = function(status){
     this.unprocessableEntity = 422 == status;
 };
 
-},{"./utils":294}],294:[function(require,module,exports){
+},{"./utils":297}],297:[function(require,module,exports){
 'use strict';
 
 /**
@@ -39920,7 +40140,7 @@ exports.cleanHeader = function(header, changesOrigin){
   return header;
 };
 
-},{}],295:[function(require,module,exports){
+},{}],298:[function(require,module,exports){
 (function (setImmediate,clearImmediate){
 var nextTick = require('process/browser.js').nextTick;
 var apply = Function.prototype.apply;
@@ -39999,7 +40219,7 @@ exports.clearImmediate = typeof clearImmediate === "function" ? clearImmediate :
   delete immediateIds[id];
 };
 }).call(this,require("timers").setImmediate,require("timers").clearImmediate)
-},{"process/browser.js":284,"timers":295}],296:[function(require,module,exports){
+},{"process/browser.js":287,"timers":298}],299:[function(require,module,exports){
 'use strict';
 
 var parse = require('./parse'),
@@ -40008,7 +40228,7 @@ var parse = require('./parse'),
 exports.parse = parse;
 exports.reparse = reparse;
 
-},{"./parse":297,"./reparse":298}],297:[function(require,module,exports){
+},{"./parse":300,"./reparse":301}],300:[function(require,module,exports){
 'use strict';
 
 var token = /<o>|<ins>|<s>|<sub>|<sup>|<b>|<i>|<tt>|<\/o>|<\/ins>|<\/s>|<\/sub>|<\/sup>|<\/b>|<\/i>|<\/tt>/;
@@ -40118,7 +40338,7 @@ function parse (str) {
 module.exports = parse;
 /* eslint no-constant-condition: 0 */
 
-},{}],298:[function(require,module,exports){
+},{}],301:[function(require,module,exports){
 'use strict';
 
 var parse = require('./parse');
@@ -40158,7 +40378,7 @@ function reparse (React) {
 
 module.exports = reparse;
 
-},{"./parse":297}],299:[function(require,module,exports){
+},{"./parse":300}],302:[function(require,module,exports){
 /** @license URI.js v4.2.1 (c) 2011 Gary Court. License: http://github.com/garycourt/uri-js */
 (function (global, factory) {
 	typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
@@ -41549,7 +41769,7 @@ Object.defineProperty(exports, '__esModule', { value: true });
 })));
 
 
-},{}],300:[function(require,module,exports){
+},{}],303:[function(require,module,exports){
 'use strict';
 
 const JSON5 = require('json5');
@@ -41558,12 +41778,12 @@ const stringify = require('onml/lib/stringify.js');
 const Ajv = require('ajv');
 const schema = require('duh-schema');
 
+const style = require('../lib/style.js');
 const renderTitle = require('../lib/render-title.js');
 const renderPorts = require('../lib/render-ports.js');
 const renderPortMaps = require('../lib/render-port-maps.js');
 const renderRegisters = require('../lib/render-registers.js');
-const style = require('../lib/style.js');
-
+const renderSymbol = require('../lib/render-symbol.js');
 
 function renderComp (duh) {
   // console.log(duh);
@@ -41574,6 +41794,7 @@ function renderComp (duh) {
   return ['div',
     style(),
     renderTitle(comp),
+    // renderSymbol(comp),
     renderPorts(comp),
     renderPortMaps(comp),
     renderRegisters(comp)
@@ -41581,7 +41802,9 @@ function renderComp (duh) {
 }
 
 function body (ml) {
-  document.body.innerHTML = stringify(ml);
+  const str = stringify(ml, 2);
+  console.log(str);
+  document.body.innerHTML = str;
 }
 
 function main () {
@@ -41603,7 +41826,7 @@ function main () {
             .compile(schema.any);
 
           if (validate(duh.resolved)) {
-            body(['div', {class: 'content'}, renderComp(duh.resolved)]);
+            body(['div', {class: 'container'}, renderComp(duh.resolved)]);
           } else {
             body(['pre', JSON.stringify(validate.errors, null, 4)]);
             throw validate.errors;
@@ -41617,4 +41840,4 @@ document.addEventListener('DOMContentLoaded', main);
 
 /* eslint-env browser */
 
-},{"../lib/render-port-maps.js":1,"../lib/render-ports.js":2,"../lib/render-registers.js":3,"../lib/render-title.js":4,"../lib/style.js":5,"ajv":6,"duh-schema":55,"json-refs":80,"json5":82,"onml/lib/stringify.js":279}]},{},[300]);
+},{"../lib/render-port-maps.js":3,"../lib/render-ports.js":4,"../lib/render-registers.js":5,"../lib/render-symbol.js":6,"../lib/render-title.js":7,"../lib/style.js":8,"ajv":9,"duh-schema":58,"json-refs":83,"json5":85,"onml/lib/stringify.js":282}]},{},[303]);
