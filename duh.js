@@ -41786,7 +41786,6 @@ const renderRegisters = require('../lib/render-registers.js');
 const renderSymbol = require('../lib/render-symbol.js');
 
 function renderComp (duh) {
-  // console.log(duh);
   const comp = duh.component;
   if (typeof comp !== 'object') {
     return ['div', 'no component found'];
@@ -41803,7 +41802,6 @@ function renderComp (duh) {
 
 function body (ml) {
   const str = stringify(ml, 2);
-  console.log(str);
   document.body.innerHTML = str;
 }
 
