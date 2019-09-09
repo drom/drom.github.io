@@ -392,7 +392,6 @@ body {
   font-family: "IBM Plex Sans", sans-serif;
   font-size: 16px;
   hyphens: auto;
-  counter-reset: h4counter;
 }
 h2 {
   counter-reset: h3counter;
@@ -400,20 +399,11 @@ h2 {
 h3:before {
   content: counter(h3counter) ".\\0000a0\\0000a0";
   counter-increment: h3counter;
-  counter-reset: h4counter;
-}
-h4:before {
-  content: counter(h3counter) "." counter(h4counter) ".\\0000a0\\0000a0";
-  counter-increment: h4counter;
-  counter-reset: h5counter;
-}
-h5:before {
-  content: counter(h3counter) "." counter(h4counter) "." counter(h5counter) ".\\0000a0\\0000a0";
-  counter-increment: h5counter;
 }
 h5 {
-  font-size: 18px;
+  font-size: 1.5em;
 }
+
 table {
   width: 100%;
   border-collapse: collapse;
