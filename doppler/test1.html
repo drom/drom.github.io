@@ -1,0 +1,24 @@
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>t1</title>
+    <link rel="shortcut icon" href="favicon.ico"/>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="main.css">
+    <script src="main.js"></script>
+  </head>
+
+  <body onload="Doppler('view42', 'test1.chango.json')">
+    <div style="max-width:600px;margin:0 auto;">
+      Some text before the waveform
+      <div id="view42" style="max-height:400px">
+{"view": [
+{"name":"clock", "ref":"AA"},
+{"name":"foo",   "ref":"BB"},
+{"name":"clock", "ref":"AA"}
+]}
+      </div>
+      Some more text after the waveform
+    </div>
+  </body>
+</html>
