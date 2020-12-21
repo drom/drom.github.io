@@ -1,0 +1,30 @@
+{
+  "name": "cockpit",
+  "version": "0.1.0",
+  "description": "cockpit",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "eslint lib",
+    "build": "browserify ./lib/main.js > main.js",
+    "watch": "watchify ./lib/main.js -o main.js -v"
+  },
+  "author": "alex.drom@gmail.com",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "@drom/eslint-config": "^0.10.0",
+    "browserify": "^16.5.2",
+    "eslint": "^7.9.0",
+    "onml": "^1.2.0",
+    "watchify": "^3.11.1"
+  },
+  "eslintConfig": {
+    "extends": "@drom/eslint-config/eslint4/node8",
+    "parserOptions": {
+      "ecmaVersion": 2020
+    }
+  }
+}
