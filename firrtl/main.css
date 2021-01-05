@@ -1,0 +1,58 @@
+html, body {
+  background: #000;
+  height: 100%;
+  margin: 0;
+}
+.container {
+  height: 100%;
+  margin: 0;
+}
+.hole { background: #000; }
+.panel {
+  background: #111;
+  display: block;
+  margin: auto;
+  top: 50%;
+  position: relative;
+  transform: translateY(-50%);
+}
+rect {
+  fill:hsla(0, 100%, 100%, 0.1);
+}
+text {
+  font-family: 'B612', sans-serif;
+  text-anchor: middle;
+  font-size: 16px;
+  fill: #6fff8d;
+}
+path {
+  fill: none;
+}
+.mark {
+  stroke: #f55;
+  fill:hsla(0, 100%, 100%, 0.1);
+}
+.literal {
+  stroke: none;
+}
+.signed {
+  stroke: #f00;
+}
+.unsigned {
+  stroke: #17f;
+}
+.scalar {
+  stroke-width: 1px;
+}
+.vector {
+  stroke-width: 3px;
+}
+.parameter {
+  fill: #a3ffa6;
+}
+.siglabel {
+  fill: #ff6363;
+}
+.unsiglabel {
+  fill: #85acff;
+}
