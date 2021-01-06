@@ -30,16 +30,16 @@ path {
 }
 .mark {
   stroke: #f55;
-  fill:hsla(0, 100%, 100%, 0.1);
+  fill: hsla(0, 0%, 0%, 0.2);
 }
 .literal {
   stroke: none;
 }
 .signed {
-  stroke: #f00;
+  stroke: hsl(0, 100%, 72%);
 }
 .unsigned {
-  stroke: #17f;
+  stroke: hsl(201, 100%, 72%);
 }
 .scalar {
   stroke-width: 1px;
@@ -51,8 +51,8 @@ path {
   fill: #a3ffa6;
 }
 .siglabel {
-  fill: #ff6363;
+  fill: hsl(0, 100%, 72%);
 }
 .unsiglabel {
-  fill: #85acff;
+  fill: hsl(201, 100%, 72%);
 }
