@@ -16,43 +16,57 @@ html, body {
   position: relative;
   transform: translateY(-50%);
 }
-rect {
+/* rect {
   fill:hsla(0, 100%, 100%, 0.1);
-}
+} */
+
 text {
   font-family: 'B612', sans-serif;
   text-anchor: middle;
   font-size: 16px;
   fill: #6fff8d;
 }
-path {
-  fill: none;
-}
-.mark {
-  stroke: #f55;
-  fill: hsla(0, 0%, 0%, 0.2);
-}
-.literal {
-  stroke: none;
-}
-.signed {
-  stroke: hsl(0, 100%, 72%);
-}
-.unsigned {
-  stroke: hsl(201, 100%, 72%);
-}
-.scalar {
-  stroke-width: 1px;
-}
-.vector {
-  stroke-width: 3px;
-}
+
+g { user-select: none; }
+
+.mark { stroke: #f55; fill: hsla(0, 0%, 0%, 0.2); }
+
+.gate { fill: hsla(0, 0%, 17%, 1); }
+
+path.dff { fill: hsl(201, 100%, 72%); stroke-width: 0; }
+
+.literal { stroke: none; }
+
+.signed { stroke: hsl(0, 100%, 72%); }
+.unsigned { stroke: hsl(201, 100%, 72%); }
+
+.zeroer { stroke-width: 1px; stroke-dasharray: 6 2; }
+.scalar { stroke-width: 1px; }
+.vector { stroke-width: 3px; }
+
+
 .parameter {
   fill: #a3ffa6;
 }
-.siglabel {
-  fill: hsl(0, 100%, 72%);
+
+.siglabel { fill: hsl(0, 100%, 72%); }
+
+.unsiglabel { fill: hsl(201, 100%, 72%); }
+
+.unsiglabel.dff {
+  fill: #000;
+  stroke: none;
+  font-weight: bold;
+  font-style: italic;
+  font-size: 18px;
 }
-.unsiglabel {
-  fill: hsl(201, 100%, 72%);
+
+.siglabel.dff {
+  fill: #000;
+  stroke: none;
+  font-weight: bold;
+  font-style: italic;
+  font-size: 18px;
 }
+
+.signed.dff { fill: hsl(0, 100%, 72%); }
