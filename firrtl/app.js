@@ -30886,6 +30886,8 @@ function config (name) {
 
 }).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
 },{}],209:[function(require,module,exports){
+'use strict';
+
 exports['B612'] = function () {
     const table = [
             '24',
@@ -30932,10 +30934,11 @@ exports['B612'] = function () {
         };
     };
 };
+
 },{}],210:[function(require,module,exports){
 'use strict';
 
-const tt = require('./tt.js');
+const tt = require('onml/tt.js');
 const {B612} = require('./B612.js');
 
 const f = B612()(16);
@@ -31343,36 +31346,36 @@ const forest = ast => {
 
 module.exports = forest;
 
-},{"./B612.js":209,"./tt.js":213}],211:[function(require,module,exports){
+},{"./B612.js":209,"onml/tt.js":213}],211:[function(require,module,exports){
 'use strict';
 
-const genSvg = require('./gen-svg.js');
+const genSvg = require('onml/gen-svg.js');
 const forest = require('./fir-forest.js');
 
-const render = ast => genSvg(forest(ast));
+const render = ast => {
+  const body = forest(ast);
+  const {w, h} = body[1];
+  return genSvg(w, h).concat([body]);
+};
 
 module.exports = render;
 
-},{"./fir-forest.js":210,"./gen-svg.js":212}],212:[function(require,module,exports){
+},{"./fir-forest.js":210,"onml/gen-svg.js":212}],212:[function(require,module,exports){
 'use strict';
 
-const w3 = require('./w3.js');
-
-module.exports = body => {
-  const attr = body[1];
-  const w = Math.ceil(attr.w);
-  const h = Math.ceil(attr.h);
-  return ['svg',
-    {
-      xmlns: w3.svg, 'xmlns:xlink': w3.xlink,
-      width: w, height: h,
-      viewBox: '0 0 ' + w + ' ' + h
-    },
-    body
-  ];
+const w3 = {
+  svg: 'http://www.w3.org/2000/svg',
+  xlink: 'http://www.w3.org/1999/xlink',
+  xmlns: 'http://www.w3.org/XML/1998/namespace'
 };
 
-},{"./w3.js":214}],213:[function(require,module,exports){
+module.exports = (w, h) => ['svg', {
+  xmlns: w3.svg, 'xmlns:xlink': w3.xlink,
+  width: w, height: h,
+  viewBox: '0 0 ' + w + ' ' + h
+}];
+
+},{}],213:[function(require,module,exports){
 'use strict';
 
 module.exports = (x, y, obj) => {
@@ -31383,15 +31386,6 @@ module.exports = (x, y, obj) => {
   }
   obj = (typeof obj === 'object') ? obj : {};
   return Object.assign(objt, obj);
-};
-
-},{}],214:[function(require,module,exports){
-'use strict';
-
-module.exports = {
-  svg: 'http://www.w3.org/2000/svg',
-  xlink: 'http://www.w3.org/1999/xlink',
-  xmlns: 'http://www.w3.org/XML/1998/namespace'
 };
 
 },{}]},{},[1]);
