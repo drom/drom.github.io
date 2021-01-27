@@ -13,7 +13,7 @@ global.Fuzzer = divName => {
 
   const opt = {
     // seed: 100,
-    O: 30,
+    O: 50,
     I: 10,
     z: true,
     m: 5,
