@@ -27,6 +27,11 @@ text {
   fill: #6fff8d;
 }
 
+.modName {
+  text-anchor: start;
+  font-size: 24px;
+}
+
 g { user-select: none; }
 
 .mark { stroke: #f55; fill: hsla(0, 0%, 0%, 0.2); }
