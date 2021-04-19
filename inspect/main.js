@@ -16,31 +16,45 @@ function App (props) {
   return $(El, Object.assign({depth: 0}, props));
 }
 
-const flatFromHier = tree => {
-  const flat = [];
+const flatFromHier = obj => {
+  const modulo = {};
+  obj.modules.map(mod => {
+    modulo[mod.name] = mod;
+  });
+  let flat = [];
   const cellRec = cell => {
     flat.push(cell);
+    const vars = modulo[cell.submodname].vars;
+    vars.map(val => {
+      val.hier = cell.hier + '.' + val.name;
+    });
+    flat = flat.concat(vars);
     (cell.scopes || []).map(cellRec);
   };
-  cellRec(tree);
+  cellRec(obj.hier);
   return flat;
 };
 
 const inspectableReport = report => {
   const root = {
-    type: 'module', name: 'top',
+    type: 'hier', name: '---',
     scopes: []
   };
 
   report.map(row => {
     const pat = row.item.hier.split('.');
-    pat.reduce((cur, ename) => {
+    pat.reduce((cur, ename, idx, arr) => {
       if (cur.scopes === undefined) {
         cur.scopes = [];
       }
       let scope = cur.scopes.find(scp => (scp.name === ename));
       if (scope === undefined) {
-        scope = {type: 'module', name: ename, mname: row.item.submodname};
+        scope = {
+          type: (idx === (arr.length - 1)) ? row.item.type : 'module',
+          dir: (idx === (arr.length - 1)) ? row.item.dir : undefined,
+          name: ename,
+          mname: row.item.submodname
+        };
         cur.scopes.push(scope);
       }
       return scope;
@@ -54,6 +68,7 @@ const inspectableReport = report => {
 global.Hier = async (divName, inpName, hierURL) => {
 
   let t0;
+
   const content = (typeof divName === 'string')
     ? document.getElementById(divName)
     : divName;
@@ -76,6 +91,7 @@ global.Hier = async (divName, inpName, hierURL) => {
   console.log('json parse: ' + (Date.now() - t0));
 
   const flat = flatFromHier(obj);
+  console.log(flat);
 
   t0 = Date.now();
   const fuser = new Fuse(flat, {
@@ -84,14 +100,22 @@ global.Hier = async (divName, inpName, hierURL) => {
   });
   console.log('index: ' + (Date.now() - t0));
 
+  let timeout;
   const onUpdate = evnt => {
     const str = evnt.target.value;
-    const report = fuser.search(str, {limit: 100});
-    const insp = inspectableReport(report);
-    ReactDOM.render(
-      $(App, insp),
-      content
-    );
+    clearTimeout(timeout);
+    timeout = setTimeout(() => {
+      t0 = Date.now();
+      const report = fuser.search(str, {limit: 100});
+      console.log('search: ' + (Date.now() - t0));
+      // console.log(report);
+      const insp = inspectableReport(report);
+      // console.log(insp);
+      ReactDOM.render(
+        $(App, insp),
+        content
+      );
+    }, 500);
   };
 
   input.addEventListener('input', onUpdate);
@@ -127,26 +151,57 @@ const reType = $ => {
     $('span', {},
       $('svg',
         {
-          class: 'spacer',
+          className: 'spacer',
           xmlns: 'http://www.w3.org/2000/svg',
           width: 18, height: 18, viewBox: '0 0 18 18'
         },
         $('path', {d})
       ),
-      $('span', {class: className}, label),
+      $('span', {className}, label),
       $('span', {}, ': ')
     );
 
   return function Type (props) {
+    const kind = props.type + (props.dir ? ('_' + props.dir) : '');
     const type = ({
       module: spacer('M10 17l5-5-5-5v10z', 'module', 'M'),
       task: spacer('M10 17l5-5-5-5v10z', 'task', 'T'),
-      wire: spacer('', 'wire', 'W'),
-      reg: spacer('', 'reg', 'R')
-    })[props.type];
+
+      wire: spacer(null, 'wire', 'W'),
+      wire_input: spacer('M6 10h4v-4l6 6l-6 6v-4h-4z', 'wire', 'W'),
+      wire_output: spacer('M16 10h-6v-4l-6 6l6 6v-4h6z', 'wire', 'W'),
+
+      reg: spacer(null, 'reg', 'R'),
+      reg_input: spacer('M6 10h4v-4l6 6l-6 6v-4h-4z', 'reg', 'R'),
+      reg_output: spacer('M16 10h-6v-4l-6 6l6 6v-4h6z', 'reg', 'R'),
+
+      logic: spacer(null, 'logic', 'L'),
+      logic_input: spacer('M6 10h4v-4l6 6l-6 6v-4h-4z', 'logic', 'L'),
+      logic_output: spacer('M16 10h-6v-4l-6 6l6 6v-4h6z', 'logic', 'L'),
+
+      integer: spacer(null, 'integer', 'i'),
+
+      int: spacer(null, 'int', 'I'),
+      int_input: spacer('M6 10h4v-4l6 6l-6 6v-4h-4z', 'int', 'I'),
+      int_output: spacer('M16 10h-6v-4l-6 6l6 6v-4h6z', 'int', 'I'),
+
+      bit: spacer(null, 'bit', 'b'),
+      bit_input: spacer('M6 10h4v-4l6 6l-6 6v-4h-4z', 'bit', 'b'),
+      bit_output: spacer('M16 10h-6v-4l-6 6l6 6v-4h6z', 'bit', 'b'),
+
+      string: spacer(null, 'string', 's'),
+      string_input: spacer('M6 10h4v-4l6 6l-6 6v-4h-4z', 'string', 's'),
+      string_output: spacer('M16 10h-6v-4l-6 6l6 6v-4h6z', 'string', 's'),
+
+      hier: spacer(null, '---', 'H')
+    })[kind] || spacer(null, 't', 't');
     return type;
   };
 };
+
+// input: 'M6 8h4v-4l6 6l-6 6v-4h-4z'
+// output: 'M16 8h-6v-4l-6 6l6 6v-4h6z'
+// inout: M8 8h4v-4l6 6l-6 6v-4h-4v4l-6-6l6-6z
 
 const reLine = React => {
   const $ = React.createElement;
@@ -169,8 +224,8 @@ const reLine = React => {
           }
         },
         $(Type, props),
-        $('span', {}, props.name),
-        $('span', {class: 'comment'}, ' -> ', props.mname)
+        $('span', {className: props.type}, props.name),
+        props.mname ? $('span', {className: 'comment'}, ' -> ', props.mname) : null
       )
     );
   };
@@ -181,7 +236,7 @@ module.exports = React => {
   const Line = reLine(React);
   return function List (props) {
     const res = reductor()(props);
-    return $('div', {class: 'wavedrom-inspect'}, res.map(Line));
+    return $('div', {className: 'wavedrom-inspect'}, res.map(Line));
   };
 };
 
