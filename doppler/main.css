@@ -2,7 +2,7 @@ body {
   margin: 0px;
   border: 0px;
   font-family: 'Roboto Mono', monospace;
-  background: #000;
+  background: #333;
 }
 .bit {
   stroke: #0fb;
@@ -14,6 +14,7 @@ body {
 .b1 { stroke: #0f1; }
 .bx { stroke: #f01; }
 .bz { stroke: #04f; }
+.spacer { stroke: #777; }
 .txt {
   font-size: 14px;
   fill: #fff;
@@ -22,8 +23,15 @@ body {
 .sidebar {
   /* background-color: #000e !important; */
 }
+.cursor {
+  stroke-dasharray: 4 3;
+  stroke: #fff7;
+  stroke-width: 1px;
+  z-index: 1;
+}
 .wd-container {
   background-color: #1c1c1c;
+  cursor: col-resize;
 }
 .timeline {}
 .timeline .txt {
