@@ -1,0 +1,44 @@
+body {
+  margin: 0px;
+  border: 0px;
+  background: #111;
+}
+
+.cursor {
+  stroke-dasharray: 4 3;
+  stroke: #fff7;
+  stroke-width: 1px;
+  z-index: 1;
+}
+
+.sidebar {
+  height: auto;
+  z-index: 2;
+}
+
+.wd-container {
+  /* background-color: #1c1c1c; */
+  overflow: hidden;
+  cursor: col-resize;
+}
+.cm-s-blackboard.CodeMirror {
+  font-family: 'Roboto mono', monospace;
+  line-height: 1.5;
+  font-size: 16px;
+  height: auto;
+  width: 220px;
+  background: #0003;
+}
+
+.CodeMirror {
+  font-family: 'Roboto mono', monospace;
+  line-height: 1.5;
+  font-size: 16px;
+  height: auto;
+  width: 220px;
+  background: #0003;
+}
+
+.CodeMirror-line > span {
+  background: #000f;
+}
