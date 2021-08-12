@@ -3,6 +3,8 @@ body {
   border: 0px;
   background: #111;
   color: #fff;
+  font-family: 'Roboto mono', monospace;
+  font-size: 16px;
 }
 
 .cursor {
