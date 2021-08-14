@@ -1,6 +1,6 @@
 @font-face {
   font-family: Iosevka;
-  src: url('/iosevka-term-light.woff2') format('woff2')
+  src: url('./iosevka-term-light.woff2') format('woff2')
 }
 
 body {
