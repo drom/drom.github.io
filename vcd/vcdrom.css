@@ -25,6 +25,11 @@ body {
   fill: #fff;
 }
 
+text.time {
+  fill: hsl(68, 100%, 50%);
+  text-anchor: middle;
+  z-index: 1;
+}
 text.xred {
   fill: hsl(0, 100%, 50%);
 }
