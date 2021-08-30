@@ -1,0 +1,20 @@
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <link rel="shortcut icon" href="vcdrom.ico"/>
+    <title>VCDrom</title>
+    <!-- <script src="vcd.js"></script> -->
+    <!-- <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono&display=swap" rel="stylesheet"> -->
+    <link rel="preload" as="font" href="iosevka-term-light.woff2" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="codemirror.css">
+    <link rel="stylesheet" href="blackboard.css">
+    <link rel="stylesheet" href="vcdrom.css">
+    <script src="vcdrom.js"></script>
+  </head>
+  <body onload="VCDrom('waveform1')">
+    <div id="waveform1">
+      <div class="wd-progress"><b>CTRL + O</b> : to open VCD file</div>
+      <input type="file" id="inputfile" accept=".vcd" style="display:none">
+    </div>
+  </body>
+</html>
