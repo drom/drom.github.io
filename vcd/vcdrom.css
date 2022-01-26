@@ -201,6 +201,10 @@ text.zxviolet {
   z-index: 1;
 }
 
+html {
+  height: 100%;
+}
+
 /* .CodeMirror-line > span {
   background: #000f;
 } */
