@@ -12,19 +12,19 @@
             "components": {
               "type": "array",
               "items": {
-                "$ref": "defs#/component"
+                "$ref": "#/defs/component"
               }
             },
             "designs": {
               "type": "array",
               "items": {
-                "$ref": "defs#/design"
+                "$ref": "#/defs/design"
               }
             },
             "busDefinitions": {
               "type": "array",
               "items": {
-                "$ref": "defs#/abstractionDefinition"
+                "$ref": "#/defs/abstractionDefinition"
               }
             }
           }
@@ -78,7 +78,7 @@
                 "name"
               ],
               "items": {
-                "$ref": "defs#/busInterface"
+                "$ref": "#/defs/busInterface"
               }
             },
             "model": {
@@ -257,7 +257,7 @@
                 "name"
               ],
               "items": {
-                "$ref": "defs#/memoryMap"
+                "$ref": "#/defs/memoryMap"
               }
             },
             "componentGenerators": {
@@ -1232,7 +1232,7 @@
                     "type": "object",
                     "patternProperties": {
                       ".+": {
-                        "$ref": "defs#/bundle"
+                        "$ref": "#/defs/bundle"
                       }
                     }
                   },
@@ -1337,7 +1337,7 @@
                   "name"
                 ],
                 "items": {
-                  "$ref": "defs#/register"
+                  "$ref": "#/defs/register"
                 }
               },
               "registerFiles": {
@@ -1383,7 +1383,7 @@
                         "name"
                       ],
                       "items": {
-                        "$ref": "defs#/register"
+                        "$ref": "#/defs/register"
                       }
                     }
                   }
