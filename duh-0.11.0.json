@@ -1637,28 +1637,28 @@
   },
   "oneOf": [
     {
-      "$ref": "defs#/catalog"
+      "$ref": "#/defs/catalog"
     },
     {
-      "$ref": "defs#/component"
+      "$ref": "#/defs/component"
     },
     {
-      "$ref": "defs#/design"
+      "$ref": "#/defs/design"
     },
     {
-      "$ref": "defs#/abstractionDefinition"
+      "$ref": "#/defs/abstractionDefinition"
     },
     {
-      "$ref": "defs#/busDefinition"
+      "$ref": "#/defs/busDefinition"
     },
     {
-      "$ref": "defs#/busInterface"
+      "$ref": "#/defs/busInterface"
     },
     {
-      "$ref": "defs#/memoryMap"
+      "$ref": "#/defs/memoryMap"
     },
     {
-      "$ref": "defs#/register"
+      "$ref": "#/defs/register"
     }
   ]
 }
