@@ -1,0 +1,23 @@
+{
+  "name": "drom.github.io",
+  "version": "1.0.0",
+  "description": "[Forth day 2015](fday15/index.html)",
+  "homepage": "https://github.com/drom/drom.github.io#readme",
+  "bugs": {
+    "url": "https://github.com/drom/drom.github.io/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/drom/drom.github.io.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "duh.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "devDependencies": {
+    "marked": "^18.0.14"
+  }
+}
