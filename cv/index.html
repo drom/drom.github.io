@@ -8,11 +8,6 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,100..700;1,100..700&display=swap" rel="stylesheet">
 <style>
-@page {
-  size: letter;
-  margin: 12mm 14mm;
-}
-
 :root {
   color-scheme: light dark;
 
@@ -229,9 +224,19 @@ article > header > .meta > :last-child {
   letter-spacing: 0.04em;
 }
 
-article > p {
+article > p,
+article > ul {
   font-size: 0.95em;
   line-height: 1.6;
+}
+
+#skills .stack {
+  gap: 0.55em;
+}
+
+#skills .stack p {
+  font-size: 0.95em;
+  line-height: 1.55;
 }
 
 .meta strong { font-weight: 400; }
@@ -369,9 +374,14 @@ article > p {
     color: #444;
   }
 
-  article > p {
+  article > p,
+  article > ul {
     font-size: 8.8pt;
     line-height: 1.38;
+  }
+
+  #skills .stack {
+    gap: 0.25em;
   }
 
   #skills .stack p {
@@ -401,15 +411,24 @@ article > p {
     <h1>Aliaksei Chapyzhenka</h1>
   </div>
   <article>
-    <p>Over 30 years of experience in the following domains: ASIC / SoC / System architecture, modeling, and RTL design; application-domain-specific processors; programmable and reconfigurable accelerators; interconnect fabric; tools and flows for high-level hardware description and modeling; wireless communication and DSP algorithms; domain-specific visualization tools; and LLM agentic workflows for HW/SW co-design.</p>
+    <p>Sr. Principal Engineer and System Architect with 30+ years of experience across ASIC / SoC / system architecture, modeling, and RTL design; application-domain-specific processors; programmable and reconfigurable accelerators; interconnect fabric; high-level hardware description languages, IRs, and toolchains; wireless communication and DSP algorithms; domain-specific visualization tools (<a href="https://wavedrom.com">WaveDrom</a>); and LLM agentic workflows for HW/SW co-design.</p>
   </article>
   <ul class="icon-list">
     <li><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>San Jose, CA, USA</li>
-    <li><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg><a href="tel:+14088814833">+1 (408) 425-1755</a></li>
+    <li><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg><a href="tel:+14084251755">+1 (408) 425-1755</a></li>
     <li><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg><a href="mailto:aliaksei.chapyzhenka@gmail.com">aliaksei.chapyzhenka@gmail.com</a></li>
-    <li><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg><a href="https://github.com/drom">https://github.com/drom</a></li>
+    <li><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg><a href="https://github.com/drom">github.com/drom</a></li>
   </ul>
 </header>
+
+<section id="skills">
+  <h3>SKILLS</h3>
+  <div class="stack">
+    <p><strong>Architecture &amp; Hardware:</strong> RISC-V, SoC / ASIC Architecture, Microarchitecture, Low-Power Design, Verilog / SystemVerilog / VHDL RTL, Reconfigurable Computing, FPGA Prototyping.</p>
+    <p><strong>Software, Modeling &amp; AI:</strong> C/C++, SystemC, MLIR / CIRCT, JavaScript / Node.js, Perl, Verilator, HW Visualization, LLM Agentic Workflows, MCP Tools, RAG Pipelines.</p>
+    <p><strong>Wireless &amp; DSP:</strong> Digital Communications, RF / Mixed-Signal / Baseband, SDR, Wi-Fi, WiMAX, DVB, OFDM, MIMO, LDPC, FFT, CORDIC.</p>
+  </div>
+</section>
 
 <section id="experience">
   <h3>EXPERIENCE</h3>
@@ -421,7 +440,12 @@ article > p {
           <div><time>OCTOBER 2018 - Present</time></div>
         </div>
       </header>
-      <p>Leading the team responsible for C++ and SystemC CPU subsystem models. Developing tools for HW specification, analysis, synthesis, and visualization. Driving LLM agentic workflows across the organization to streamline C/C++/Verilog HW/SW development flows and engineering processes, including custom MCP tools and RAG pipelines for protocols and architectural specifications.Contributing to multiple hardware description formats, IRs, and tools, including MLIR CIRCT and RISC-V ISA specification formats. Developed libraries, code generation, profiling, and visualization tools for RISC-V Vector processors. Active contributor to RISC-V Foundation technical groups.</p>
+      <ul>
+        <li>Lead the engineering team responsible for C++ and SystemC CPU subsystem performance and functional models.</li>
+        <li>Drive LLM agentic workflows across the group and organization to streamline C/C++/Verilog HW/SW development flows and engineering processes; build custom MCP tools and RAG pipelines for protocols and architectural specifications.</li>
+        <li>Develop tools for hardware specification, analysis, synthesis, and visualization; contribute to hardware description formats, IRs, and compilers including MLIR CIRCT and RISC-V ISA specification formats.</li>
+        <li>Developed libraries, code generation, profiling, and visualization tools for RISC-V Vector (RVV) processors; active contributor to RISC-V International technical groups.</li>
+      </ul>
     </article>
 
     <article>
@@ -496,32 +520,14 @@ article > p {
 
     <article>
       <header>
-        <h4>MTK, Molodechno, Belarus — HW / SW Designer</h4>
+        <h4>Early Career — Molodechno &amp; Minsk, Belarus</h4>
         <div class="meta">
-          <div><time>AUGUST 1997 - MARCH 2001</time></div>
+          <div><time>AUGUST 1994 - MARCH 2001</time></div>
         </div>
       </header>
-      <p>Developed embedded systems, including schematics, PCB layout, Verilog RTL, and telecom/voice application firmware. Designed FPGAs and hardware/software systems for mobile telecommunications equipment.</p>
-    </article>
-
-    <article>
-      <header>
-        <h4>NT Lab., Minsk, Belarus — Application Engineer</h4>
-        <div class="meta">
-          <div><time>MAY 1996 - JUNE 1997</time></div>
-        </div>
-      </header>
-      <p>Developed a novel stack microprocessor, including DSP algorithm benchmarking, testing, and architecture documentation. Built a Forth compiler, standard library, and applications.</p>
-    </article>
-
-    <article>
-      <header>
-        <h4>"Sputnik", Molodechno, Belarus — Electronics Designer</h4>
-        <div class="meta">
-          <div><time>AUGUST 1994 - AUGUST 1996</time></div>
-        </div>
-      </header>
-      <p>Developed schematics and firmware for a mobile phone base station using a stack processor. Implemented radio modem and voice processing algorithms, and led serial production support and BOM cost reduction.</p>
+      <p><strong>HW / SW Designer, MTK (1997–2001):</strong> Designed FPGAs, Verilog RTL, schematics, PCBs, and voice/telecom firmware for mobile telecommunications systems.<br>
+      <strong>Application Engineer, NT Lab (1996–1997):</strong> Developed a novel stack microprocessor, DSP benchmarks, and a Forth compiler, standard library, and applications.<br>
+      <strong>Electronics Designer, "Sputnik" (1994–1996):</strong> Developed schematics, stack-processor firmware, and radio modem/voice algorithms for mobile phone base stations.</p>
     </article>
   </div>
 </section>
@@ -570,15 +576,6 @@ article > p {
     <li>sTTAck: Stack Transport Triggered Architecture (EuroForth 1999). Aliaksei Chapyzhenka.</li>
     <li>Low-power architecture for CIL-code hardware processor (Проблеми програмування, 2005). Chapyzhenka, Ragozin, Umnov.</li>
   </ul>
-</section>
-
-<section id="skills">
-  <h3>SKILLS</h3>
-  <div class="stack">
-    <p>System Architecture; Microarchitecture; Low-power SoC design; Verilog/VHDL RTL design; HW languages, IRs, and tools; HW model visualization;</p>
-    <p>FPGA and rapid prototyping; Reconfigurable Computing; Digital communication systems; RF, mixed-signal, and baseband; SDR, DSP, Wi-Fi, WiMAX, DVB, OFDM, MIMO, LDPC, FFT, CORDIC;</p>
-    <p>C/C++, SystemC, JavaScript, Node.js, Perl; Verilator, Linux, Open Source; LLM Agents, MCP, RAG.</p>
-  </div>
 </section>
 
 </body>
